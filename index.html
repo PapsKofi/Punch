@@ -1,0 +1,1584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Punch">
+<meta name="theme-color" content="#0F1220">
+<title>PUNCH — Time Clock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<style>
+  :root{
+    /* light (fallback) palette */
+    --bg:#F4F1FB; --panel:#FFFFFF; --panel-2:#F7F4FC; --text:#1B1830; --text-dim:#69647F;
+    --accent:#5B4CFF; --accent-soft:rgba(91,76,255,.12); --ot:#FF7A32; --ot-soft:rgba(255,122,50,.12);
+    --ok:#12B76A; --ok-soft:rgba(18,183,106,.12); --holiday:#E93D82; --holiday-soft:rgba(233,61,130,.12);
+    --pay:#0EA5A5; --border:#E4E0F3; --shadow: rgba(50,35,120,.10);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#11101E; --panel:#1B1A2E; --panel-2:#221F38; --text:#F1EEFB; --text-dim:#9C97B8;
+      --accent:#7C6FFF; --accent-soft:rgba(124,111,255,.16); --ot:#FF9142; --ot-soft:rgba(255,145,66,.15);
+      --ok:#2ED198; --ok-soft:rgba(46,209,152,.14); --holiday:#F4508B; --holiday-soft:rgba(244,80,139,.15);
+      --pay:#3DDCC8; --border:#332F52; --shadow: rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#11101E; --panel:#1B1A2E; --panel-2:#221F38; --text:#F1EEFB; --text-dim:#9C97B8;
+    --accent:#7C6FFF; --accent-soft:rgba(124,111,255,.16); --ot:#FF9142; --ot-soft:rgba(255,145,66,.15);
+    --ok:#2ED198; --ok-soft:rgba(46,209,152,.14); --holiday:#F4508B; --holiday-soft:rgba(244,80,139,.15);
+    --pay:#3DDCC8; --border:#332F52; --shadow: rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'IBM Plex Sans', -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+    display:flex; justify-content:center;
+    padding: max(18px, env(safe-area-inset-top)) 14px max(24px, env(safe-area-inset-bottom));
+  }
+  .app{ width:100%; max-width:460px; }
+  .mono{ font-family:'IBM Plex Mono', ui-monospace, monospace; }
+
+  header{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px; }
+  .brand{ font-family:'IBM Plex Mono'; font-weight:700; letter-spacing:.14em; font-size:15px; color:var(--text); }
+  .brand span{ color:var(--accent); }
+  .clock{ font-family:'IBM Plex Mono'; font-size:14px; color:var(--text-dim); text-align:right; }
+  .clock .d{ font-size:11px; }
+
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:18px; margin-bottom:14px; box-shadow:0 1px 2px var(--shadow);
+  }
+
+  .status-row{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .led{ width:9px; height:9px; border-radius:50%; background:var(--text-dim); flex:none; }
+  .led.on{ background:var(--accent); box-shadow:0 0 8px var(--accent); }
+  .status-text{ font-size:13px; color:var(--text-dim); }
+  .status-text b{ color:var(--text); font-weight:600; }
+
+  .punch-btn{
+    width:100%; padding:20px 16px; border-radius:9px; border:1px solid var(--border);
+    background:var(--panel-2); color:var(--text); font-family:'IBM Plex Mono'; font-weight:600;
+    font-size:17px; letter-spacing:.03em; cursor:pointer; transition:transform .08s ease, background .15s ease;
+  }
+  .punch-btn:active{ transform:scale(.985); }
+  .punch-btn.in{ background:linear-gradient(135deg, var(--accent), var(--pay)); color:#FFFFFF; border-color:var(--accent); }
+  .punch-btn:disabled{ opacity:.55; cursor:default; }
+  .elapsed{ text-align:center; margin-top:10px; font-family:'IBM Plex Mono'; font-size:13px; color:var(--text-dim); }
+
+  .section-title{ font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--text-dim); margin:0 0 12px; font-weight:600; }
+
+  .week-bars{ display:flex; justify-content:space-between; align-items:flex-end; height:96px; margin-bottom:8px; gap:6px; }
+  .week-bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; transition:opacity .15s ease; }
+  .week-bar-col.inactive{ opacity:.28; }
+  .week-bar{ width:100%; max-width:28px; border-radius:3px 3px 0 0; background:var(--border); position:relative; min-height:3px; overflow:hidden; }
+  .week-bar .reg{ position:absolute; bottom:0; left:0; right:0; background:var(--accent); }
+  .week-bar .ot{ position:absolute; left:0; right:0; background:var(--ot); }
+  .week-bar-day{ font-size:10px; color:var(--text-dim); margin-top:6px; font-family:'IBM Plex Mono'; }
+  .week-bar-day.today{ color:var(--accent); font-weight:600; }
+
+  .totals{ display:flex; gap:10px; border-top:1px solid var(--border); padding-top:12px; margin-top:2px; }
+  .total{ flex:1; }
+  .total .n{ font-family:'IBM Plex Mono'; font-size:18px; font-weight:600; }
+  .total .n.ot{ color:var(--ot); }
+  .total .l{ font-size:11px; color:var(--text-dim); margin-top:2px; }
+
+  .pay-row{ display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border); margin-top:12px; padding-top:12px; font-size:12.5px; color:var(--text-dim); }
+  .pay-label-group{ display:flex; align-items:center; gap:8px; }
+  .pay-mode-btn{
+    font-family:'IBM Plex Mono'; font-size:10px; padding:3px 9px; border-radius:10px;
+    border:1px solid var(--border); background:var(--panel-2); color:var(--text-dim); cursor:pointer;
+  }
+  .pay-mode-btn:active{ color:var(--text); }
+  .pay-value-group{ display:flex; align-items:center; gap:8px; }
+  .eye-btn{ background:none; border:none; cursor:pointer; font-size:14px; padding:2px; line-height:1; }
+  .pay-row #weekPay{ color:var(--pay); font-size:15px; font-weight:600; }
+  .pay-row #periodPay{ color:var(--pay); font-size:15px; font-weight:600; }
+
+  .period-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
+  .period-range{ font-size:12px; color:var(--text-dim); }
+
+  details.period-details summary.period-summary{
+    cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between;
+  }
+  details.period-details summary.period-summary::-webkit-details-marker{ display:none; }
+  .period-summary-right{ display:flex; align-items:center; gap:8px; }
+  .period-chevron{ color:var(--text-dim); font-size:11px; transition:transform .15s ease; }
+  details.period-details[open] .period-chevron{ transform:rotate(180deg); }
+  .period-body{ margin-top:14px; }
+  .type-breakdown{ border-top:1px solid var(--border); margin-top:2px; padding-top:8px; }
+  .type-row{ display:flex; justify-content:space-between; font-size:12.5px; color:var(--text-dim); padding:5px 0; }
+  .type-row .mono{ color:var(--pay); font-weight:600; }
+  .dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px; vertical-align:middle; }
+  .dot-weekday{ background:var(--accent); }
+  .dot-weekend{ background:var(--ok); }
+  .dot-holiday{ background:var(--holiday); }
+
+  .profile-row{ display:flex; align-items:center; gap:16px; margin-bottom:16px; }
+  .profile-photo, .profile-photo.placeholder{
+    width:64px; height:64px; border-radius:50%; object-fit:cover; flex:none;
+    background:var(--panel-2); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:28px;
+  }
+  .profile-photo-actions{ display:flex; flex-direction:column; gap:8px; }
+  .text-input{
+    width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:8px 10px; font-family:'IBM Plex Sans'; font-size:13.5px;
+  }
+
+  .day-group{ margin-bottom:16px; }
+  .day-group:last-child{ margin-bottom:0; }
+  .day-head{ display:flex; align-items:flex-start; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid var(--border); gap:8px; }
+  .day-head b{ color:var(--text); font-weight:600; }
+  .day-head .dh-left{ display:flex; flex-direction:column; gap:2px; }
+  .day-head .dh-right{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .day-head .dh-pay{ color:var(--text); font-family:'IBM Plex Mono'; font-size:12px; }
+  .day-type-btn{
+    border:none; background:none; padding:0; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
+    cursor:pointer; color:var(--text-dim); text-decoration:underline dotted; text-underline-offset:2px;
+  }
+  .day-type-btn.weekend{ color:var(--ok); text-decoration:none; }
+  .day-type-btn.holiday{ color:var(--holiday); text-decoration:none; }
+  .row{ display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px dashed var(--border); gap:10px; }
+  .row:last-child{ border-bottom:none; }
+  .row .times{ font-family:'IBM Plex Mono'; font-size:13.5px; }
+  .row .times .open{ color:var(--accent); }
+  .row .dur{ font-family:'IBM Plex Mono'; font-size:12.5px; color:var(--text-dim); white-space:nowrap; }
+  .row .dur.ot{ color:var(--ot); }
+  .row-actions{ display:flex; gap:0; }
+  .icon-btn{ background:none; border:none; color:var(--text-dim); cursor:pointer; padding:4px 6px; font-size:13px; font-family:'IBM Plex Sans'; }
+  .icon-btn:hover{ color:var(--text); }
+  .icon-btn.confirming{ color:var(--ot); font-weight:600; }
+
+  .empty{ text-align:center; color:var(--text-dim); font-size:13px; padding:14px 0; }
+
+  .edit-row{ padding:10px 0; border-bottom:1px dashed var(--border); }
+  .edit-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+  .field label{ display:block; font-size:10.5px; color:var(--text-dim); margin-bottom:4px; text-transform:uppercase; letter-spacing:.06em; }
+  .field input{
+    width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:8px 8px; font-family:'IBM Plex Mono'; font-size:13px;
+  }
+  .edit-actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .btn{ padding:7px 14px; border-radius:6px; border:1px solid var(--border); background:var(--panel-2); color:var(--text); font-size:12.5px; cursor:pointer; font-family:'IBM Plex Sans'; }
+  .btn.primary{ background:var(--accent); color:#FFFFFF; border-color:var(--accent); font-weight:600; }
+  .btn.danger{ color:var(--ot); }
+
+  .add-link{ display:block; width:100%; text-align:center; background:none; border:1px dashed var(--border); border-radius:8px; padding:10px; color:var(--text-dim); font-size:12.5px; cursor:pointer; margin-top:4px; font-family:'IBM Plex Sans'; }
+  .add-link:hover{ color:var(--text); border-color:var(--text-dim); }
+
+  details.settings summary{ cursor:pointer; font-size:12px; color:var(--text-dim); list-style:none; display:flex; align-items:center; justify-content:space-between; }
+  details.settings summary::-webkit-details-marker{ display:none; }
+  .settings-body{ margin-top:14px; }
+  .setting-row{ display:flex; align-items:center; justify-content:space-between; padding:8px 0; }
+  .setting-row .l{ font-size:13px; }
+  .setting-row .l small{ display:block; color:var(--text-dim); font-size:11px; margin-top:2px; }
+  .num-input{ width:64px; background:var(--panel-2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:6px; font-family:'IBM Plex Mono'; text-align:center; }
+
+  .holiday-add{ display:flex; gap:8px; padding:4px 0 10px; }
+  .date-input{
+    flex:1; background:var(--panel-2); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:7px 8px; font-family:'IBM Plex Mono'; font-size:13px;
+  }
+  .holiday-list{ display:flex; flex-direction:column; gap:0; margin-bottom:6px; }
+  .holiday-item{
+    display:flex; align-items:center; justify-content:space-between; padding:7px 0;
+    border-bottom:1px dashed var(--border); font-size:12.5px;
+  }
+  .holiday-item:last-child{ border-bottom:none; }
+  .holiday-item .hd{ font-family:'IBM Plex Mono'; }
+  .holiday-empty{ font-size:12px; color:var(--text-dim); padding:4px 0 10px; }
+
+  .sync{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-dim); margin-top:10px; }
+  .sync .led{ width:6px; height:6px; }
+
+  .export-menu{ position:relative; }
+  .export-menu .chev{ font-size:9px; margin-left:2px; }
+  .export-dropdown{
+    display:none; position:absolute; right:0; top:calc(100% + 8px); z-index:20;
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    box-shadow:0 8px 24px var(--shadow); min-width:220px; overflow:hidden;
+  }
+  .export-dropdown.open{ display:block; }
+  .export-option{
+    display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%;
+    background:none; border:none; border-bottom:1px solid var(--border); padding:11px 14px;
+    text-align:left; cursor:pointer; font-family:'IBM Plex Sans';
+  }
+  .export-option:last-child{ border-bottom:none; }
+  .export-option:active{ background:var(--panel-2); }
+  .export-option .eo-name{ font-size:13.5px; font-weight:600; color:var(--text); font-family:'IBM Plex Mono'; }
+  .export-option .eo-name small{ font-weight:400; color:var(--text-dim); }
+  .export-option .eo-desc{ font-size:11px; color:var(--text-dim); }
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--text); color:var(--bg); padding:9px 16px; border-radius:20px; font-size:12.5px;
+    opacity:0; transition:all .25s ease; pointer-events:none; z-index:50; white-space:nowrap;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  footer{ text-align:center; color:var(--text-dim); font-size:10.5px; margin-top:18px; opacity:.7; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="brand">PUNCH<span>.</span></div>
+    <div class="clock">
+      <div id="clockTime" class="mono">--:--</div>
+      <div id="clockDate" class="d">—</div>
+    </div>
+  </header>
+
+  <div class="card">
+    <div class="status-row">
+      <div id="statusLed" class="led"></div>
+      <div class="status-text" id="statusText">Checking status…</div>
+    </div>
+    <button id="punchBtn" class="punch-btn" disabled>—</button>
+    <div id="elapsed" class="elapsed"></div>
+  </div>
+
+  <div class="card">
+    <div class="section-title" id="weekSectionTitle">This week</div>
+    <div class="week-bars" id="weekBars"></div>
+    <div class="totals">
+      <div class="total">
+        <div class="n" id="weekRegular">0h 00m</div>
+        <div class="l">Regular</div>
+      </div>
+      <div class="total">
+        <div class="n ot" id="weekOvertime">0h 00m</div>
+        <div class="l">Overtime</div>
+      </div>
+      <div class="total">
+        <div class="n" id="weekTotal">0h 00m</div>
+        <div class="l">Total</div>
+      </div>
+    </div>
+    <div class="pay-row" id="weekPayRow">
+      <span class="pay-label-group">
+        <span id="weekPayLabel">Overtime pay this week</span>
+        <button class="pay-mode-btn" id="weekPayModeBtn" type="button">Today</button>
+      </span>
+      <span class="pay-value-group">
+        <button class="eye-btn" id="weekPayHideBtn" type="button" aria-label="Hide amount">👁</button>
+        <span class="mono" id="weekPay">—</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <details class="period-details" id="periodDetails">
+      <summary class="period-summary">
+        <span class="section-title" style="margin:0;">This period</span>
+        <span class="period-summary-right">
+          <span class="period-range mono" id="periodRange">—</span>
+          <span class="period-chevron">▾</span>
+        </span>
+      </summary>
+      <div class="period-body">
+        <div class="totals">
+          <div class="total">
+            <div class="n" id="periodRegular">0h 00m</div>
+            <div class="l">Regular</div>
+          </div>
+          <div class="total">
+            <div class="n ot" id="periodOvertime">0h 00m</div>
+            <div class="l">Overtime</div>
+          </div>
+          <div class="total">
+            <div class="n" id="periodTotal">0h 00m</div>
+            <div class="l">Total</div>
+          </div>
+        </div>
+        <div class="pay-row">
+          <span class="pay-label-group">
+            <span id="periodPayLabel">Overtime pay this period</span>
+            <button class="pay-mode-btn" id="periodPayModeBtn" type="button">Today</button>
+          </span>
+          <span class="pay-value-group">
+            <button class="eye-btn" id="periodPayHideBtn" type="button" aria-label="Hide amount">👁</button>
+            <span class="mono" id="periodPay">—</span>
+          </span>
+        </div>
+        <div class="type-breakdown">
+          <div class="type-row"><span><i class="dot dot-weekday"></i>Weekday</span><span class="mono" id="periodWeekdayPay">—</span></div>
+          <div class="type-row"><span><i class="dot dot-weekend"></i>Weekend</span><span class="mono" id="periodWeekendPay">—</span></div>
+          <div class="type-row"><span><i class="dot dot-holiday"></i>Holiday</span><span class="mono" id="periodHolidayPay">—</span></div>
+        </div>
+        <button class="add-link" id="editRangeBtn" style="margin-top:10px;">Use a custom date range</button>
+        <div id="rangeEditor" class="edit-row" style="display:none; border-bottom:none; padding-bottom:0;">
+          <div class="edit-grid">
+            <div class="field"><label>From</label><input type="date" id="rangeFromInput"></div>
+            <div class="field"><label>To</label><input type="date" id="rangeToInput"></div>
+          </div>
+          <div class="edit-actions">
+            <button class="btn" id="resetRangeBtn">Use automatic cycle</button>
+            <button class="btn primary" id="applyRangeBtn">Apply</button>
+          </div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Last logged</div>
+    <div id="ledger"></div>
+    <button class="add-link" id="addManual">+ Add entry manually</button>
+  </div>
+
+  <div class="card">
+    <details class="period-details" id="historyDetails">
+      <summary class="period-summary">
+        <span class="section-title" style="margin:0;">History</span>
+        <span class="period-summary-right">
+          <span class="period-range mono" id="historySummary">—</span>
+          <span class="period-chevron">▾</span>
+        </span>
+      </summary>
+      <div class="period-body">
+        <div id="historyLedger"></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <details class="period-details" id="profileDetails">
+      <summary class="period-summary">
+        <span class="section-title" style="margin:0;">Profile</span>
+        <span class="period-summary-right">
+          <span class="period-range mono" id="profileSummary">—</span>
+          <span class="period-chevron">▾</span>
+        </span>
+      </summary>
+      <div class="period-body">
+        <div class="profile-row">
+          <div class="profile-photo-wrap">
+            <img id="profilePhoto" class="profile-photo" style="display:none;" alt="Profile photo">
+            <div id="profilePhotoPlaceholder" class="profile-photo placeholder">🧑</div>
+          </div>
+          <div class="profile-photo-actions">
+            <input type="file" id="profilePhotoInput" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
+            <button class="btn" id="profilePhotoBtn">Upload photo</button>
+            <button class="btn danger" id="profilePhotoRemoveBtn" style="display:none;">Remove photo</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="l">Name<small>Just for your own reference in the app</small></div>
+          <input type="text" id="profileNameInput" class="text-input" placeholder="Your name" maxlength="60">
+        </div>
+        <div class="sync" id="profileSync"><div class="led"></div><span>Checking…</span></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <details class="settings" id="settingsDetails">
+      <summary>Settings <span id="chevron">▾</span></summary>
+      <div class="settings-body">
+        <div class="setting-row">
+          <div class="l">Overtime threshold<small>Hours per day before it counts as overtime</small></div>
+          <input type="number" id="thresholdInput" class="num-input" min="1" max="24" step="0.5" />
+        </div>
+        <div class="setting-row">
+          <div class="l">Pay period start day<small>Day of month your period begins — e.g. 22 runs 22nd to 21st, every month</small></div>
+          <input type="number" id="periodStartDayInput" class="num-input" min="1" max="28" step="1" />
+        </div>
+        <div class="setting-row">
+          <div class="l">Currency symbol<small>Shown before pay amounts</small></div>
+          <input type="text" id="currencyInput" class="num-input" maxlength="3" />
+        </div>
+        <div class="setting-row">
+          <div class="l">Hourly rate<small>Your base pay per hour</small></div>
+          <input type="number" id="hourlyRateInput" class="num-input" min="0" step="0.01" />
+        </div>
+        <div class="setting-row">
+          <div class="l">Weekday rate<small>Overtime multiplier for hours beyond 8/day, Mon–Fri</small></div>
+          <input type="number" id="weekdayRateInput" class="num-input" min="0" step="0.01" />
+        </div>
+        <div class="setting-row">
+          <div class="l">Weekend rate<small>Overtime multiplier for all hours worked, Sat–Sun</small></div>
+          <input type="number" id="weekendRateInput" class="num-input" min="0" step="0.01" />
+        </div>
+        <div class="setting-row">
+          <div class="l">Holiday rate<small>Overtime multiplier for all hours worked on a marked holiday</small></div>
+          <input type="number" id="holidayRateInput" class="num-input" min="0" step="0.01" />
+        </div>
+        <div class="setting-row" style="align-items:flex-start;">
+          <div class="l">Mark a holiday<small>Pick any date — past or upcoming — to pay it at the holiday rate</small></div>
+        </div>
+        <div class="holiday-add">
+          <input type="date" id="holidayDateInput" class="date-input" />
+          <button class="btn primary" id="addHolidayBtn">Mark</button>
+        </div>
+        <div id="holidayList" class="holiday-list"></div>
+        <div class="setting-row" style="align-items:flex-start;">
+          <div class="l">Export date range<small>Leave blank to export your full history</small></div>
+        </div>
+        <div class="holiday-add">
+          <input type="date" id="exportFromInput" class="date-input">
+          <input type="date" id="exportToInput" class="date-input">
+        </div>
+        <div class="setting-row">
+          <div class="l">Export log<small>Day-by-day hours, overtime and pay</small></div>
+          <div class="export-menu" id="exportMenu">
+            <button class="btn" id="exportToggleBtn">Export <span class="chev">▾</span></button>
+            <div class="export-dropdown" id="exportDropdown">
+              <button class="export-option" data-format="csv">
+                <span class="eo-name">CSV</span>
+                <span class="eo-desc">Plain table — opens anywhere</span>
+              </button>
+              <button class="export-option" data-format="xlsx">
+                <span class="eo-name">Excel <small>.xlsx</small></span>
+                <span class="eo-desc">Formatted workbook</span>
+              </button>
+              <button class="export-option" data-format="pdf">
+                <span class="eo-name">PDF</span>
+                <span class="eo-desc">Printable report</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="sync" id="syncStatus"><div class="led"></div><span>Checking sync…</span></div>
+      </div>
+    </details>
+  </div>
+
+  <footer>Pay shown is <strong>overtime pay only</strong> — your regular hours (up to 8/day on a weekday) are assumed to be covered by a separate salary and aren't included in these figures. On a weekday, the normal 8-hour shift is anchored to a 6am start — time worked before 6am is treated as coming in early and isn't counted at all (not regular, not overtime), no matter how early you clock in (your actual clock-in time is still recorded as-is). On a weekend/holiday, all hours worked count as overtime. Overtime is paid at hourly rate × that day's rate multiplier. Weekend = Saturday &amp; Sunday. Holidays are only applied to a day once marked. Adjust rates and threshold in Settings.</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- state ----------
+  let db = null;
+  let downloadsCap = null;
+  let assetsCap = null;
+  let usingLocalFallback = false;
+  let sessions = [];        // {id, clockIn: ISOstring, clockOut: ISOstring|null}
+  let holidays = {};        // dateKey -> true
+  let profile = { name: '', photoId: null };
+  let settings = { dailyThreshold: 8, currency: '₵', hourlyRate: 0, weekdayRate: 1, weekendRate: 1, holidayRate: 1, periodStartDay: 22, customRangeStart: null, customRangeEnd: null, appIconAssetId: null, weekPayMode: 'week', weekPayHidden: false, periodPayMode: 'period', periodPayHidden: false };
+  let unsubSessions = null, unsubSettings = null, unsubHolidays = null, unsubProfile = null;
+  let busy = false;
+  let currencyMigrated = false; // one-time correction: old default was '$', new default is '₵'
+  let iconHostAttempted = false; // one-time: replace the data-URI touch icon with a hosted asset URL (more reliable on iOS)
+
+  const LOCAL_KEY_SESSIONS = "punch_sessions_v1";
+  const LOCAL_KEY_SETTINGS = "punch_settings_v1";
+  const LOCAL_KEY_HOLIDAYS = "punch_holidays_v1";
+  const LOCAL_KEY_PROFILE = "punch_profile_v1";
+
+  // ---------- helpers ----------
+  function pad(n){ return String(n).padStart(2,"0"); }
+  function fmtClock(d){ return pad(d.getHours())+":"+pad(d.getMinutes()); }
+  function fmtDateShort(d){ return d.toLocaleDateString(undefined,{weekday:"short", month:"short", day:"numeric"}); }
+  function dateKey(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+  function fmtHM(ms){
+    if (ms < 0) ms = 0;
+    const totalMin = Math.round(ms/60000);
+    const h = Math.floor(totalMin/60), m = totalMin%60;
+    return h+"h "+pad(m)+"m";
+  }
+  function toLocalInputValue(d){
+    return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes());
+  }
+  function startOfWeek(d){
+    const day = (d.getDay()+6)%7; // Mon=0..Sun=6
+    const s = new Date(d.getFullYear(), d.getMonth(), d.getDate()-day);
+    s.setHours(0,0,0,0);
+    return s;
+  }
+  function uid(){ return 'l'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+
+  function showToast(msg){
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(showToast._h);
+    showToast._h = setTimeout(()=>t.classList.remove('show'), 2200);
+  }
+
+  // ---------- persistence ----------
+  function loadLocal(){
+    try{
+      sessions = JSON.parse(localStorage.getItem(LOCAL_KEY_SESSIONS) || "[]");
+      const s = JSON.parse(localStorage.getItem(LOCAL_KEY_SETTINGS) || "null");
+      if (s) settings = Object.assign({}, settings, s);
+      holidays = JSON.parse(localStorage.getItem(LOCAL_KEY_HOLIDAYS) || "{}");
+      const p = JSON.parse(localStorage.getItem(LOCAL_KEY_PROFILE) || "null");
+      if (p) profile = Object.assign({}, profile, p);
+    }catch(e){ sessions = []; }
+  }
+  function saveLocalProfile(){
+    localStorage.setItem(LOCAL_KEY_PROFILE, JSON.stringify(profile));
+  }
+  function saveLocalSessions(){
+    localStorage.setItem(LOCAL_KEY_SESSIONS, JSON.stringify(sessions));
+  }
+  function saveLocalSettings(){
+    localStorage.setItem(LOCAL_KEY_SETTINGS, JSON.stringify(settings));
+  }
+  function saveLocalHolidays(){
+    localStorage.setItem(LOCAL_KEY_HOLIDAYS, JSON.stringify(holidays));
+  }
+
+  // weekend = Saturday & Sunday; holiday overrides weekend/weekday if marked
+  function dayType(d){
+    if (holidays[dateKey(d)]) return 'holiday';
+    const dow = d.getDay(); // 0 = Sun, 6 = Sat
+    if (dow === 0 || dow === 6) return 'weekend';
+    return 'weekday';
+  }
+  function rateForType(type){
+    if (type === 'holiday') return settings.holidayRate;
+    if (type === 'weekend') return settings.weekendRate;
+    return settings.weekdayRate;
+  }
+  // Regular hours are paid at the plain hourly rate. Overtime hours (the extra hours
+  // beyond the 8-hour requirement on a weekday, or the *whole* shift on a weekend/holiday)
+  // are paid at the hourly rate multiplied by that day type's rate.
+  // Pay = overtime pay only. Regular hours (the required 8/day on a weekday) are assumed
+  // to be covered by a separate salary and are NOT included in this figure.
+  function payForDay(d, totalMs, threshold, earlyMs){
+    const { otMs } = splitHours(d, totalMs, threshold, earlyMs);
+    const rate = rateForType(dayType(d)) ?? 1;
+    const hourly = settings.hourlyRate || 0;
+    return (otMs/3600000) * hourly * rate;
+  }
+  // Weekday: the normal 8-hour shift is anchored to a 6am start, regardless of the actual
+  // clock-in time. Time worked before 6am is coming in early — it isn't regular hours AND
+  // it isn't overtime either; it's simply excluded from the paid-hours calculation.
+  // Normal hours are drawn from what's worked at/after 6am, up to the threshold, and anything
+  // beyond that (still counted from 6am onward) is overtime.
+  // Weekend/holiday: the whole day counts as overtime (there's no "normal" shift on those days).
+  function splitHours(d, totalMs, threshold, earlyMs){
+    const type = dayType(d);
+    earlyMs = earlyMs || 0;
+    if (type === 'weekday'){
+      const afterSixMs = Math.max(0, totalMs - earlyMs);
+      const regMs = Math.min(afterSixMs, threshold*3600000);
+      const otMs = Math.max(0, afterSixMs - threshold*3600000);
+      return { type, regMs, otMs };
+    }
+    return { type, regMs: 0, otMs: totalMs };
+  }
+  function fmtMoney(n){
+    const v = (isFinite(n) ? n : 0);
+    return settings.currency + v.toFixed(2);
+  }
+
+  // recurring pay-period cycle (e.g. 22nd -> 21st every month), or a manual override range
+  function computePeriod(now){
+    if (settings.customRangeStart && settings.customRangeEnd){
+      const start = new Date(settings.customRangeStart + 'T00:00:00');
+      const end = new Date(settings.customRangeEnd + 'T23:59:59');
+      return { start, end, custom: true };
+    }
+    const startDay = Math.min(Math.max(parseInt(settings.periodStartDay,10) || 22, 1), 28);
+    const y = now.getFullYear(), m = now.getMonth();
+    let start;
+    if (now.getDate() >= startDay){ start = new Date(y, m, startDay, 0,0,0,0); }
+    else { start = new Date(y, m-1, startDay, 0,0,0,0); }
+    const end = new Date(start.getFullYear(), start.getMonth()+1, start.getDate()-1, 23,59,59,999);
+    return { start, end, custom: false };
+  }
+
+  function maybeMigrateCurrency(){
+    if (currencyMigrated) return;
+    currencyMigrated = true;
+    if (settings.currency === '$'){
+      updateSetting('currency', '₵');
+    }
+  }
+
+  function applyIconUrl(url){
+    document.querySelectorAll('link[rel="apple-touch-icon"], link[rel="icon"]').forEach(l => l.setAttribute('href', url));
+  }
+
+  // iOS's "Add to Home Screen" icon fetcher is unreliable with data: URI touch icons.
+  // Once assets storage is available, upload the embedded icon once and point the
+  // <link> tags at a real hosted URL instead — much more likely to stick on iOS.
+  async function ensureHostedIcon(){
+    if (iconHostAttempted || !assetsCap) return;
+    iconHostAttempted = true;
+    if (settings.appIconAssetId){
+      applyIconUrl('/_blob/' + settings.appIconAssetId);
+      return;
+    }
+    try{
+      const linkEl = document.querySelector('link[rel="apple-touch-icon"]');
+      const dataUri = linkEl && linkEl.getAttribute('href');
+      if (!dataUri || !dataUri.startsWith('data:')) return;
+      const resp = await fetch(dataUri);
+      const blob = await resp.blob();
+      const result = await assetsCap.upload(blob, { type: 'image/png' });
+      await updateSetting('appIconAssetId', result.id);
+      applyIconUrl(result.url);
+    }catch(e){ /* data: URI stays as fallback */ }
+  }
+
+  async function init(){
+    loadLocal(); // seed immediately so UI isn't empty while capabilities resolve
+    render();
+
+    let claudeDb = null, claudeDownloads = null, claudeAssets = null;
+    try{
+      if (window.claude && typeof window.claude.use === 'function'){
+        claudeDb = await window.claude.use('db');
+        claudeDownloads = await window.claude.use('downloads');
+        claudeAssets = await window.claude.use('assets');
+      }
+    }catch(e){ claudeDb = null; }
+
+    if (claudeDb){
+      db = claudeDb;
+      downloadsCap = claudeDownloads;
+      assetsCap = claudeAssets;
+      usingLocalFallback = false;
+      updateSyncStatus(true);
+      updateProfileSyncStatus(true, !!claudeAssets);
+      subscribeRemote();
+    } else {
+      usingLocalFallback = true;
+      updateSyncStatus(false);
+      updateProfileSyncStatus(false, false);
+      maybeMigrateCurrency();
+    }
+  }
+
+  function subscribeRemote(){
+    try{
+      unsubSessions = db.collection('sessions').orderBy('clockIn','desc').limit(500).onSnapshot(
+        snap => {
+          sessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          render();
+        },
+        err => { updateSyncStatus(false, err && err.message); }
+      );
+    }catch(e){ updateSyncStatus(false); }
+
+    try{
+      unsubSettings = db.doc('settings/config').onSnapshot(
+        snap => {
+          if (snap.exists){
+            const d = snap.data() || {};
+            settings = Object.assign({}, settings, d);
+          }
+          render();
+          maybeMigrateCurrency();
+          ensureHostedIcon();
+        },
+        err => {}
+      );
+    }catch(e){}
+
+    try{
+      unsubHolidays = db.collection('holidays').onSnapshot(
+        snap => {
+          const map = {};
+          snap.docs.forEach(d => { map[d.id] = true; });
+          holidays = map;
+          render();
+        },
+        err => {}
+      );
+    }catch(e){}
+
+    try{
+      unsubProfile = db.doc('profile/info').onSnapshot(
+        snap => {
+          if (snap.exists){
+            const d = snap.data() || {};
+            profile = Object.assign({}, profile, d);
+          }
+          render();
+        },
+        err => {}
+      );
+    }catch(e){}
+  }
+
+  function updateSyncStatus(ok, msg){
+    const el = document.getElementById('syncStatus');
+    if (!el) return;
+    el.innerHTML = '';
+    const led = document.createElement('div'); led.className='led'+(ok?' on':'');
+    const span = document.createElement('span');
+    span.textContent = ok ? 'Backed up — synced to your account' : 'Local only on this device — no backup (open this page as a Claude artifact link to enable sync)';
+    el.appendChild(led); el.appendChild(span);
+  }
+
+  function updateProfileSyncStatus(dbOk, assetsOk){
+    const el = document.getElementById('profileSync');
+    if (!el) return;
+    el.innerHTML = '';
+    const led = document.createElement('div'); led.className = 'led'+(dbOk ? ' on' : '');
+    const span = document.createElement('span');
+    span.textContent = dbOk
+      ? (assetsOk ? 'Name and photo are backed up to your account' : 'Name is backed up — photo upload isn\'t available in this view')
+      : 'Local only on this device — name saves here, photo upload is unavailable';
+    el.appendChild(led); el.appendChild(span);
+    const uploadBtn = document.getElementById('profilePhotoBtn');
+    if (uploadBtn) uploadBtn.style.display = assetsOk ? '' : 'none';
+  }
+
+  // ---------- mutations ----------
+  async function clockIn(){
+    if (busy) return;
+    busy = true; renderButtonBusy(true);
+    const nowIso = new Date().toISOString();
+    try{
+      if (db){
+        await db.collection('sessions').add({ clockIn: nowIso, clockOut: null });
+      } else {
+        sessions.unshift({ id: uid(), clockIn: nowIso, clockOut: null });
+        saveLocalSessions();
+        render();
+      }
+      showToast('Clocked in at ' + fmtClock(new Date(nowIso)));
+    }catch(e){
+      showToast('Could not clock in — try again');
+    }
+    busy = false; renderButtonBusy(false);
+  }
+
+  async function clockOut(openId){
+    if (busy) return;
+    busy = true; renderButtonBusy(true);
+    const nowIso = new Date().toISOString();
+    try{
+      if (db){
+        await db.collection('sessions').doc(openId).update({ clockOut: nowIso });
+      } else {
+        const s = sessions.find(x=>x.id===openId);
+        if (s){ s.clockOut = nowIso; saveLocalSessions(); render(); }
+      }
+      showToast('Clocked out at ' + fmtClock(new Date(nowIso)));
+    }catch(e){
+      showToast('Could not clock out — try again');
+    }
+    busy = false; renderButtonBusy(false);
+  }
+
+  async function saveEntry(id, clockInVal, clockOutVal, isNew){
+    const clockIn = new Date(clockInVal).toISOString();
+    const clockOut = clockOutVal ? new Date(clockOutVal).toISOString() : null;
+    if (clockOut && new Date(clockOut) <= new Date(clockIn)){
+      showToast('Clock-out must be after clock-in');
+      return false;
+    }
+    try{
+      if (db){
+        if (isNew){ await db.collection('sessions').add({ clockIn, clockOut }); }
+        else { await db.collection('sessions').doc(id).set({ clockIn, clockOut }); }
+      } else {
+        if (isNew){ sessions.unshift({ id: uid(), clockIn, clockOut }); }
+        else { const s = sessions.find(x=>x.id===id); if (s){ s.clockIn = clockIn; s.clockOut = clockOut; } }
+        saveLocalSessions();
+      }
+      showToast('Saved');
+      render();
+      return true;
+    }catch(e){
+      showToast('Save failed — try again');
+      return false;
+    }
+  }
+
+  async function deleteEntry(id){
+    try{
+      if (db){ await db.collection('sessions').doc(id).delete(); }
+      else { sessions = sessions.filter(x=>x.id!==id); saveLocalSessions(); render(); }
+      showToast('Deleted');
+    }catch(e){ showToast('Delete failed'); }
+  }
+
+  async function updateSetting(key, value, toastMsg){
+    settings[key] = value;
+    try{
+      if (db){ await db.doc('settings/config').set(Object.assign({}, settings)); }
+      else { saveLocalSettings(); }
+      if (toastMsg) showToast(toastMsg);
+    }catch(e){ showToast('Could not save setting'); }
+    render();
+  }
+
+  async function saveCustomRange(fromVal, toVal){
+    settings.customRangeStart = fromVal;
+    settings.customRangeEnd = toVal;
+    try{
+      if (db){ await db.doc('settings/config').set(Object.assign({}, settings)); }
+      else { saveLocalSettings(); }
+      showToast(fromVal ? 'Custom range applied' : 'Back to automatic cycle');
+    }catch(e){ showToast('Could not save range'); }
+    render();
+  }
+
+  async function updateProfile(partial, toastMsg){
+    profile = Object.assign({}, profile, partial);
+    try{
+      if (db){ await db.doc('profile/info').set(Object.assign({}, profile)); }
+      else { saveLocalProfile(); }
+      if (toastMsg) showToast(toastMsg);
+    }catch(e){ showToast('Could not save profile'); }
+    render();
+  }
+
+  async function uploadProfilePhoto(file){
+    if (!assetsCap){ showToast('Photo upload needs sync — open the artifact link signed in'); return; }
+    if (!file.type || !['image/png','image/jpeg','image/webp','image/gif'].includes(file.type)){
+      showToast('Use a PNG, JPEG, WEBP or GIF image'); return;
+    }
+    if (file.size > 20*1024*1024){ showToast('Image is too large (20 MB max)'); return; }
+    showToast('Uploading photo…');
+    try{
+      const result = await assetsCap.upload(file);
+      const oldId = profile.photoId;
+      await updateProfile({ photoId: result.id }, 'Photo updated');
+      if (oldId && oldId !== result.id){
+        try{ await assetsCap.delete(oldId); }catch(e){}
+      }
+    }catch(e){ showToast('Photo upload failed'); }
+  }
+
+  async function removeProfilePhoto(){
+    const oldId = profile.photoId;
+    await updateProfile({ photoId: null }, 'Photo removed');
+    if (oldId && assetsCap){
+      try{ await assetsCap.delete(oldId); }catch(e){}
+    }
+  }
+
+  async function toggleHoliday(key){
+    const isHoliday = !holidays[key];
+    try{
+      if (db){
+        if (isHoliday){ await db.doc('holidays/'+key).set({ isHoliday: true }); }
+        else { await db.doc('holidays/'+key).delete(); }
+      } else {
+        if (isHoliday){ holidays[key] = true; } else { delete holidays[key]; }
+        saveLocalHolidays();
+      }
+      showToast(isHoliday ? 'Marked as holiday' : 'Unmarked as holiday');
+      render();
+    }catch(e){ showToast('Could not update holiday'); }
+  }
+
+  // ---------- derived data ----------
+  function openSession(){
+    return sessions.find(s => !s.clockOut) || null;
+  }
+  function sessionDurationMs(s, now){
+    const inMs = new Date(s.clockIn).getTime();
+    const outMs = s.clockOut ? new Date(s.clockOut).getTime() : now.getTime();
+    return Math.max(0, outMs - inMs);
+  }
+  // How much of this session happened before 6am on its clock-in day.
+  // (The actual clock-in time is still recorded as-is — this only affects the
+  // regular/overtime split: normal hours are always anchored to a 6am start.)
+  function sessionEarlyMs(s, now){
+    const start = new Date(s.clockIn);
+    const end = s.clockOut ? new Date(s.clockOut) : now;
+    const dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0,0,0,0);
+    const sixAm = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 6,0,0,0);
+    const overlapStart = start < dayStart ? dayStart : start;
+    const overlapEnd = end < sixAm ? end : sixAm;
+    return Math.max(0, overlapEnd - overlapStart);
+  }
+  function groupByDay(now){
+    const groups = {}; // key -> {date, sessions:[], totalMs, earlyMs}
+    sessions.forEach(s=>{
+      const key = dateKey(new Date(s.clockIn));
+      if (!groups[key]) groups[key] = { key, date: new Date(s.clockIn), sessions: [], totalMs: 0, earlyMs: 0 };
+      groups[key].sessions.push(s);
+      groups[key].totalMs += sessionDurationMs(s, now);
+      groups[key].earlyMs += sessionEarlyMs(s, now);
+    });
+    return Object.values(groups).sort((a,b)=> b.date - a.date);
+  }
+
+  // ---------- render ----------
+  function render(){
+    const now = new Date();
+    renderClock(now);
+    renderStatus(now);
+    renderWeek(now);
+    renderPeriod(now);
+    renderLedger(now);
+    renderSettingsPanel();
+    renderProfile();
+  }
+
+  function renderClock(now){
+    document.getElementById('clockTime').textContent = fmtClock(now);
+    document.getElementById('clockDate').textContent = fmtDateShort(now);
+  }
+
+  function renderButtonBusy(isBusy){
+    const btn = document.getElementById('punchBtn');
+    btn.disabled = isBusy;
+  }
+
+  function renderStatus(now){
+    const open = openSession();
+    const led = document.getElementById('statusLed');
+    const text = document.getElementById('statusText');
+    const btn = document.getElementById('punchBtn');
+    const elapsed = document.getElementById('elapsed');
+
+    btn.disabled = false;
+    btn.onclick = null;
+
+    if (open){
+      led.classList.add('on');
+      text.innerHTML = 'Clocked in since <b>' + fmtClock(new Date(open.clockIn)) + '</b>';
+      btn.textContent = 'Clock out';
+      btn.classList.add('in');
+      btn.onclick = () => clockOut(open.id);
+      const ms = sessionDurationMs(open, now);
+      elapsed.textContent = 'On the clock for ' + fmtHM(ms);
+    } else {
+      led.classList.remove('on');
+      text.textContent = 'Not clocked in';
+      btn.textContent = 'Clock in';
+      btn.classList.remove('in');
+      btn.onclick = clockIn;
+      elapsed.textContent = '';
+    }
+  }
+
+  function renderWeek(now){
+    const threshold = settings.dailyThreshold || 8;
+    const weekStart = startOfWeek(now);
+    const days = [];
+    for (let i=0;i<7;i++){
+      const d = new Date(weekStart); d.setDate(weekStart.getDate()+i);
+      days.push(d);
+    }
+    const byKey = {};
+    const byKeyEarly = {};
+    groupByDay(now).forEach(g => { byKey[g.key] = g.totalMs; byKeyEarly[g.key] = g.earlyMs; });
+
+    let maxMs = Math.max(threshold*3600000, 1);
+    days.forEach(d => { const ms = byKey[dateKey(d)] || 0; if (ms > maxMs) maxMs = ms; });
+
+    const barsEl = document.getElementById('weekBars');
+    barsEl.innerHTML = '';
+    let weekRegMs = 0, weekOtMs = 0, weekPay = 0;
+    let todayRegMs = 0, todayOtMs = 0, todayPay = 0;
+    const todayKey = dateKey(now);
+    const dayLabels = ['M','T','W','T','F','S','S'];
+    const mode = settings.weekPayMode || 'week';
+
+    days.forEach((d,i)=>{
+      const ms = byKey[dateKey(d)] || 0;
+      const early = byKeyEarly[dateKey(d)] || 0;
+      const { regMs, otMs } = splitHours(d, ms, threshold, early);
+      weekRegMs += regMs; weekOtMs += otMs;
+      const dayPay = payForDay(d, ms, threshold, early);
+      weekPay += dayPay;
+      const isToday = dateKey(d) === todayKey;
+      if (isToday){ todayRegMs = regMs; todayOtMs = otMs; todayPay = dayPay; }
+
+      const col = document.createElement('div'); col.className = 'week-bar-col' + (mode === 'today' && !isToday ? ' inactive' : '');
+      const bar = document.createElement('div'); bar.className = 'week-bar';
+      bar.style.height = Math.max(3, (ms/maxMs)*90) + 'px';
+      const regDiv = document.createElement('div'); regDiv.className = 'reg';
+      regDiv.style.height = ms ? ((regMs/ms)*100)+'%' : '0%';
+      const otDiv = document.createElement('div'); otDiv.className = 'ot';
+      otDiv.style.height = ms ? ((otMs/ms)*100)+'%' : '0%';
+      otDiv.style.bottom = ms ? ((regMs/ms)*100)+'%' : '0%';
+      bar.appendChild(regDiv); bar.appendChild(otDiv);
+      const label = document.createElement('div');
+      label.className = 'week-bar-day' + (isToday ? ' today' : '');
+      label.textContent = dayLabels[i];
+      col.appendChild(bar); col.appendChild(label);
+      barsEl.appendChild(col);
+    });
+
+    const showReg = mode === 'today' ? todayRegMs : weekRegMs;
+    const showOt = mode === 'today' ? todayOtMs : weekOtMs;
+    const showPay = mode === 'today' ? todayPay : weekPay;
+
+    document.getElementById('weekSectionTitle').textContent = mode === 'today' ? 'Today' : 'This week';
+    document.getElementById('weekRegular').textContent = fmtHM(showReg);
+    document.getElementById('weekOvertime').textContent = fmtHM(showOt);
+    document.getElementById('weekTotal').textContent = fmtHM(showReg+showOt);
+
+    const payHidden = !!settings.weekPayHidden;
+    document.getElementById('weekPayLabel').textContent = mode === 'today' ? 'Overtime pay today' : 'Overtime pay this week';
+    document.getElementById('weekPayModeBtn').textContent = mode === 'today' ? 'Week' : 'Today';
+    document.getElementById('weekPay').textContent = payHidden ? (settings.currency + ' ••••') : fmtMoney(showPay);
+    document.getElementById('weekPayHideBtn').textContent = payHidden ? '🙈' : '👁';
+    document.getElementById('weekPayHideBtn').setAttribute('aria-label', payHidden ? 'Show amount' : 'Hide amount');
+  }
+
+  function renderPeriod(now){
+    const threshold = settings.dailyThreshold || 8;
+    const { start, end, custom } = computePeriod(now);
+    let regMs = 0, otMs = 0, pay = 0;
+    const typePay = { weekday: 0, weekend: 0, holiday: 0 };
+    let todayRegMs = 0, todayOtMs = 0, todayPay = 0;
+    const todayTypePay = { weekday: 0, weekend: 0, holiday: 0 };
+    const todayKey = dateKey(now);
+    const mode = settings.periodPayMode || 'period';
+
+    groupByDay(now).forEach(g=>{
+      const inRange = g.date >= start && g.date <= end;
+      const isToday = g.key === todayKey;
+      if (inRange || isToday){
+        const { type, regMs: r, otMs: o } = splitHours(g.date, g.totalMs, threshold, g.earlyMs);
+        const dayPay = payForDay(g.date, g.totalMs, threshold, g.earlyMs);
+        if (inRange){
+          regMs += r; otMs += o;
+          pay += dayPay;
+          typePay[type] += dayPay;
+        }
+        if (isToday){
+          todayRegMs = r; todayOtMs = o; todayPay = dayPay;
+          todayTypePay[type] += dayPay;
+        }
+      }
+    });
+
+    const showReg = mode === 'today' ? todayRegMs : regMs;
+    const showOt = mode === 'today' ? todayOtMs : otMs;
+    const showPay = mode === 'today' ? todayPay : pay;
+    const showTypePay = mode === 'today' ? todayTypePay : typePay;
+
+    document.getElementById('periodRegular').textContent = fmtHM(showReg);
+    document.getElementById('periodOvertime').textContent = fmtHM(showOt);
+    document.getElementById('periodTotal').textContent = fmtHM(showReg+showOt);
+    document.getElementById('periodWeekdayPay').textContent = fmtMoney(showTypePay.weekday);
+    document.getElementById('periodWeekendPay').textContent = fmtMoney(showTypePay.weekend);
+    document.getElementById('periodHolidayPay').textContent = fmtMoney(showTypePay.holiday);
+
+    const payHidden = !!settings.periodPayHidden;
+    document.getElementById('periodPayLabel').textContent = mode === 'today' ? 'Overtime pay today' : 'Overtime pay this period';
+    document.getElementById('periodPayModeBtn').textContent = mode === 'today' ? 'Period' : 'Today';
+    document.getElementById('periodPay').textContent = payHidden ? (settings.currency + ' ••••') : fmtMoney(showPay);
+    document.getElementById('periodPayHideBtn').textContent = payHidden ? '🙈' : '👁';
+    document.getElementById('periodPayHideBtn').setAttribute('aria-label', payHidden ? 'Show amount' : 'Hide amount');
+
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const rangeLabel = start.toLocaleDateString(undefined,{month:'short', day:'numeric'}) + ' – ' +
+      end.toLocaleDateString(undefined, sameYear ? {month:'short', day:'numeric'} : {month:'short', day:'numeric', year:'numeric'});
+    document.getElementById('periodRange').textContent = (mode === 'today' ? 'Today · ' : '') + rangeLabel + (custom ? ' · custom' : '');
+    document.getElementById('editRangeBtn').textContent = custom ? 'Edit custom range' : 'Use a custom date range';
+  }
+
+  function buildDayGroupEl(g, now, threshold){
+    const wrap = document.createElement('div'); wrap.className = 'day-group';
+    const head = document.createElement('div'); head.className = 'day-head';
+    const { type } = splitHours(g.date, g.totalMs, threshold, g.earlyMs);
+    const key = g.key;
+
+    const left = document.createElement('div'); left.className = 'dh-left';
+    left.innerHTML = '<b>' + fmtDateShort(g.date) + '</b>';
+
+    const right = document.createElement('div'); right.className = 'dh-right';
+    const typeBtn = document.createElement('button');
+    typeBtn.className = 'day-type-btn' + (type !== 'weekday' ? ' '+type : '');
+    typeBtn.textContent = type === 'holiday' ? 'Holiday · tap to unmark' : (type === 'weekend' ? 'Weekend · tap to mark holiday' : 'Weekday · tap to mark holiday');
+    typeBtn.onclick = () => toggleHoliday(key);
+    right.appendChild(typeBtn);
+
+    head.appendChild(left); head.appendChild(right);
+    wrap.appendChild(head);
+
+    g.sessions.sort((a,b)=> new Date(b.clockIn)-new Date(a.clockIn)).forEach(s=>{
+      wrap.appendChild(renderSessionRow(s, now, threshold));
+    });
+    return wrap;
+  }
+
+  function renderLedger(now){
+    const threshold = settings.dailyThreshold || 8;
+    const el = document.getElementById('ledger');
+    const historyEl = document.getElementById('historyLedger');
+    el.innerHTML = '';
+    historyEl.innerHTML = '';
+    const groups = groupByDay(now).slice(0, 60);
+
+    if (!groups.length){
+      const e = document.createElement('div'); e.className='empty'; e.textContent = 'No entries yet — clock in to start your log.';
+      el.appendChild(e);
+      document.getElementById('historySummary').textContent = 'Empty';
+      return;
+    }
+
+    el.appendChild(buildDayGroupEl(groups[0], now, threshold));
+
+    const rest = groups.slice(1);
+    if (!rest.length){
+      const e = document.createElement('div'); e.className='empty'; e.textContent = 'Nothing earlier yet.';
+      historyEl.appendChild(e);
+      document.getElementById('historySummary').textContent = 'Empty';
+    } else {
+      rest.forEach(g => historyEl.appendChild(buildDayGroupEl(g, now, threshold)));
+      document.getElementById('historySummary').textContent = rest.length + ' day' + (rest.length===1?'':'s');
+    }
+  }
+
+  function renderSessionRow(s, now, threshold){
+    const row = document.createElement('div'); row.className = 'row';
+    row.dataset.id = s.id;
+
+    const times = document.createElement('div'); times.className = 'times';
+    const inTime = fmtClock(new Date(s.clockIn));
+    const outTime = s.clockOut ? fmtClock(new Date(s.clockOut)) : null;
+    times.innerHTML = inTime + ' – ' + (outTime ? outTime : '<span class="open">now</span>');
+
+    const dur = document.createElement('div'); dur.className = 'dur';
+    const ms = sessionDurationMs(s, now);
+    dur.textContent = fmtHM(ms);
+
+    const actions = document.createElement('div'); actions.className = 'row-actions';
+    const editBtn = document.createElement('button'); editBtn.className='icon-btn'; editBtn.textContent='Edit';
+    editBtn.onclick = () => openEditRow(row, s, false);
+    const delBtn = document.createElement('button'); delBtn.className='icon-btn'; delBtn.textContent='Del';
+    delBtn.onclick = () => {
+      if (delBtn.dataset.confirm === '1'){
+        clearTimeout(delBtn._resetTimer);
+        deleteEntry(s.id);
+      } else {
+        delBtn.dataset.confirm = '1';
+        delBtn.textContent = 'Sure?';
+        delBtn.classList.add('confirming');
+        delBtn._resetTimer = setTimeout(()=>{
+          delBtn.dataset.confirm = '';
+          delBtn.textContent = 'Del';
+          delBtn.classList.remove('confirming');
+        }, 2500);
+      }
+    };
+    actions.appendChild(editBtn); actions.appendChild(delBtn);
+
+    const left = document.createElement('div');
+    left.appendChild(times);
+    row.appendChild(left);
+    row.appendChild(dur);
+    row.appendChild(actions);
+    return row;
+  }
+
+  function openEditRow(anchorRow, session, isNew){
+    const editEl = document.createElement('div'); editEl.className = 'edit-row';
+    const nowLocal = new Date();
+    const inVal = session ? toLocalInputValue(new Date(session.clockIn)) : toLocalInputValue(nowLocal);
+    const outVal = session && session.clockOut ? toLocalInputValue(new Date(session.clockOut)) : '';
+
+    editEl.innerHTML =
+      '<div class="edit-grid">' +
+        '<div class="field"><label>Clock in</label><input type="datetime-local" class="ei-in" value="'+inVal+'"></div>' +
+        '<div class="field"><label>Clock out</label><input type="datetime-local" class="ei-out" value="'+outVal+'"></div>' +
+      '</div>' +
+      '<div class="edit-actions">' +
+        '<button class="btn cancel">Cancel</button>' +
+        '<button class="btn primary save">Save</button>' +
+      '</div>';
+
+    editEl.querySelector('.cancel').onclick = () => { editEl.replaceWith(anchorRow); };
+    editEl.querySelector('.save').onclick = async () => {
+      const inV = editEl.querySelector('.ei-in').value;
+      const outV = editEl.querySelector('.ei-out').value;
+      if (!inV){ showToast('Clock-in time is required'); return; }
+      const ok = await saveEntry(session ? session.id : null, inV, outV, isNew);
+      if (ok) render();
+    };
+
+    anchorRow.replaceWith(editEl);
+  }
+
+  function renderProfile(){
+    const nameInput = document.getElementById('profileNameInput');
+    if (document.activeElement !== nameInput){
+      nameInput.value = profile.name || '';
+    }
+    document.getElementById('profileSummary').textContent = profile.name || 'Not set';
+
+    const img = document.getElementById('profilePhoto');
+    const placeholder = document.getElementById('profilePhotoPlaceholder');
+    const removeBtn = document.getElementById('profilePhotoRemoveBtn');
+    if (profile.photoId){
+      img.src = '/_blob/' + profile.photoId;
+      img.style.display = 'block';
+      placeholder.style.display = 'none';
+      removeBtn.style.display = '';
+    } else {
+      img.style.display = 'none';
+      placeholder.style.display = 'flex';
+      removeBtn.style.display = 'none';
+    }
+  }
+
+  function renderSettingsPanel(){
+    const fields = [
+      ['thresholdInput', settings.dailyThreshold, 8],
+      ['periodStartDayInput', settings.periodStartDay, 22],
+      ['currencyInput', settings.currency, '₵'],
+      ['hourlyRateInput', settings.hourlyRate, 0],
+      ['weekdayRateInput', settings.weekdayRate, 1],
+      ['weekendRateInput', settings.weekendRate, 1],
+      ['holidayRateInput', settings.holidayRate, 1],
+    ];
+    fields.forEach(([id, val, fallback])=>{
+      const input = document.getElementById(id);
+      if (document.activeElement !== input){
+        input.value = (val === undefined || val === null) ? fallback : val;
+      }
+    });
+    renderHolidayList();
+  }
+
+  function renderHolidayList(){
+    const el = document.getElementById('holidayList');
+    const keys = Object.keys(holidays).sort();
+    if (!keys.length){
+      el.innerHTML = '<div class="holiday-empty">No holidays marked yet.</div>';
+      return;
+    }
+    el.innerHTML = '';
+    keys.forEach(key=>{
+      const item = document.createElement('div'); item.className = 'holiday-item';
+      const label = document.createElement('span'); label.className = 'hd';
+      const d = new Date(key + 'T00:00:00');
+      label.textContent = fmtDateShort(d);
+      const remove = document.createElement('button'); remove.className = 'icon-btn'; remove.textContent = 'Remove';
+      remove.onclick = () => toggleHoliday(key);
+      item.appendChild(label); item.appendChild(remove);
+      el.appendChild(item);
+    });
+  }
+
+  // ---------- events ----------
+  document.getElementById('weekPayModeBtn').addEventListener('click', ()=>{
+    const next = (settings.weekPayMode === 'today') ? 'week' : 'today';
+    updateSetting('weekPayMode', next);
+  });
+  document.getElementById('weekPayHideBtn').addEventListener('click', ()=>{
+    updateSetting('weekPayHidden', !settings.weekPayHidden);
+  });
+  document.getElementById('periodPayModeBtn').addEventListener('click', ()=>{
+    const next = (settings.periodPayMode === 'today') ? 'period' : 'today';
+    updateSetting('periodPayMode', next);
+  });
+  document.getElementById('periodPayHideBtn').addEventListener('click', ()=>{
+    updateSetting('periodPayHidden', !settings.periodPayHidden);
+  });
+
+  document.getElementById('profileNameInput').addEventListener('change', (e)=>{
+    updateProfile({ name: e.target.value.trim() }, 'Name saved');
+  });
+  document.getElementById('profilePhotoBtn').addEventListener('click', ()=>{
+    if (!assetsCap){ showToast('Photo upload needs sync — open the artifact link signed in'); return; }
+    document.getElementById('profilePhotoInput').click();
+  });
+  document.getElementById('profilePhotoInput').addEventListener('change', (e)=>{
+    const file = e.target.files && e.target.files[0];
+    if (file) uploadProfilePhoto(file);
+    e.target.value = '';
+  });
+  document.getElementById('profilePhotoRemoveBtn').addEventListener('click', ()=>{
+    removeProfilePhoto();
+  });
+
+  document.getElementById('thresholdInput').addEventListener('change', (e)=>{
+    let v = parseFloat(e.target.value);
+    if (isNaN(v) || v <= 0) v = 8;
+    updateSetting('dailyThreshold', v, 'Overtime threshold set to ' + v + 'h/day');
+  });
+  document.getElementById('periodStartDayInput').addEventListener('change', (e)=>{
+    let v = parseInt(e.target.value,10);
+    if (isNaN(v) || v < 1) v = 22;
+    if (v > 28) v = 28;
+    updateSetting('periodStartDay', v, 'Pay period now runs from the ' + v + (v===1?'st':v===2?'nd':v===3?'rd':'th') + ' each month');
+  });
+  document.getElementById('editRangeBtn').addEventListener('click', ()=>{
+    const editor = document.getElementById('rangeEditor');
+    const opening = editor.style.display === 'none' || !editor.style.display;
+    if (opening){
+      const { start, end } = computePeriod(new Date());
+      document.getElementById('rangeFromInput').value = dateKey(start);
+      document.getElementById('rangeToInput').value = dateKey(end);
+    }
+    editor.style.display = opening ? 'block' : 'none';
+  });
+  document.getElementById('applyRangeBtn').addEventListener('click', ()=>{
+    const f = document.getElementById('rangeFromInput').value;
+    const t = document.getElementById('rangeToInput').value;
+    if (!f || !t){ showToast('Pick both dates'); return; }
+    if (new Date(t) < new Date(f)){ showToast('End date must be after start date'); return; }
+    saveCustomRange(f, t);
+  });
+  document.getElementById('resetRangeBtn').addEventListener('click', ()=>{
+    saveCustomRange(null, null);
+    document.getElementById('rangeEditor').style.display = 'none';
+  });
+  document.getElementById('currencyInput').addEventListener('change', (e)=>{
+    const v = (e.target.value || '$').trim().slice(0,3) || '$';
+    updateSetting('currency', v, 'Currency set to ' + v);
+  });
+  document.getElementById('hourlyRateInput').addEventListener('change', (e)=>{
+    let v = parseFloat(e.target.value);
+    if (isNaN(v) || v < 0) v = 0;
+    updateSetting('hourlyRate', v, 'Hourly rate saved');
+  });
+  document.getElementById('weekdayRateInput').addEventListener('change', (e)=>{
+    let v = parseFloat(e.target.value);
+    if (isNaN(v) || v < 0) v = 1;
+    updateSetting('weekdayRate', v, 'Weekday rate saved');
+  });
+  document.getElementById('weekendRateInput').addEventListener('change', (e)=>{
+    let v = parseFloat(e.target.value);
+    if (isNaN(v) || v < 0) v = 1;
+    updateSetting('weekendRate', v, 'Weekend rate saved');
+  });
+  document.getElementById('holidayRateInput').addEventListener('change', (e)=>{
+    let v = parseFloat(e.target.value);
+    if (isNaN(v) || v < 0) v = 1;
+    updateSetting('holidayRate', v, 'Holiday rate saved');
+  });
+  document.getElementById('addHolidayBtn').addEventListener('click', ()=>{
+    const input = document.getElementById('holidayDateInput');
+    const val = input.value;
+    if (!val){ showToast('Pick a date first'); return; }
+    if (holidays[val]){ showToast('Already marked as a holiday'); return; }
+    toggleHoliday(val);
+    input.value = '';
+  });
+
+  document.getElementById('addManual').addEventListener('click', ()=>{
+    const el = document.getElementById('ledger');
+    const holder = document.createElement('div');
+    el.insertBefore(holder, el.firstChild);
+    openEditRow(holder, null, true);
+  });
+
+  // ---------- export (day-level: date, type, in/out, regular/overtime/total, rate, pay) ----------
+  function buildExportData(rangeFrom, rangeTo){
+    const threshold = settings.dailyThreshold || 8;
+    const header = ['Date','Day Name','Day Type','Clock In','Clock Out','Regular (h)','Overtime (h)','Total (h)','OT Rate','Overtime Pay'];
+    let groups = groupByDay(new Date()).slice().sort((a,b)=> a.date - b.date);
+    if (rangeFrom) groups = groups.filter(g => g.date >= rangeFrom);
+    if (rangeTo) groups = groups.filter(g => g.date <= rangeTo);
+    let totalReg = 0, totalOt = 0, totalPay = 0;
+
+    const rows = [];
+    const weekKeys = [];
+
+    groups.forEach(g=>{
+      const { type, regMs, otMs } = splitHours(g.date, g.totalMs, threshold, g.earlyMs);
+      const rate = rateForType(type);
+      const pay = payForDay(g.date, g.totalMs, threshold, g.earlyMs);
+      totalReg += regMs; totalOt += otMs; totalPay += pay;
+
+      const sorted = g.sessions.slice().sort((a,b)=> new Date(a.clockIn)-new Date(b.clockIn));
+      const firstIn = sorted[0] ? fmtClock(new Date(sorted[0].clockIn)) : '';
+      const lastOut = sorted.length ? (sorted[sorted.length-1].clockOut ? fmtClock(new Date(sorted[sorted.length-1].clockOut)) : 'open') : '';
+      const dayName = g.date.toLocaleDateString(undefined, { weekday: 'long' });
+
+      rows.push([
+        dateKey(g.date), dayName, type, firstIn, lastOut,
+        +(regMs/3600000).toFixed(2), +(otMs/3600000).toFixed(2), +((regMs+otMs)/3600000).toFixed(2),
+        rate, +pay.toFixed(2)
+      ]);
+      // Weeks run Monday–Sunday; a leading partial week (e.g. data starting on a
+      // Saturday) is its own short group rather than being merged into the next one.
+      weekKeys.push(dateKey(startOfWeek(g.date)));
+    });
+
+    return { header, rows, weekKeys, totals: { regHours: totalReg/3600000, otHours: totalOt/3600000, pay: totalPay }, currency: settings.currency };
+  }
+
+  async function offerDownload(filename, data){
+    if (downloadsCap){
+      try{
+        await downloadsCap.save({ filename, data });
+        showToast('Exported ' + filename);
+        return;
+      }catch(e){
+        showToast('Export unavailable here');
+        return;
+      }
+    }
+    try{
+      const blob = (data instanceof Blob) ? data : new Blob([data]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      showToast('Exported ' + filename);
+    }catch(e){ showToast('Export failed'); }
+  }
+
+  function getExportRange(){
+    const fromVal = document.getElementById('exportFromInput').value;
+    const toVal = document.getElementById('exportToInput').value;
+    const from = fromVal ? new Date(fromVal + 'T00:00:00') : null;
+    const to = toVal ? new Date(toVal + 'T23:59:59') : null;
+    if (from && to && to < from){ showToast('End date must be after start date'); return null; }
+    return { from, to, fromVal, toVal };
+  }
+  function exportFilename(base, range){
+    if (range.fromVal || range.toVal){
+      return base + '_' + (range.fromVal || 'start') + '_to_' + (range.toVal || 'now');
+    }
+    return base;
+  }
+
+  async function exportCSV(){
+    const range = getExportRange();
+    if (!range) return;
+    const { header, rows, weekKeys, totals } = buildExportData(range.from, range.to);
+    if (!rows.length){ showToast('No entries in that date range'); return; }
+    const lines = [header];
+    rows.forEach((row, i)=>{
+      if (i > 0 && weekKeys[i] !== weekKeys[i-1]) lines.push([]); // blank line = week break
+      lines.push(row);
+    });
+    lines.push([]);
+    lines.push(['Totals', '', '', '', '', +totals.regHours.toFixed(2), +totals.otHours.toFixed(2), +(totals.regHours+totals.otHours).toFixed(2), '', +totals.pay.toFixed(2)]);
+    const csv = lines.map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+    await offerDownload(exportFilename('punch-log', range) + '.csv', csv);
+  }
+
+  async function exportXLSX(){
+    if (typeof XLSX === 'undefined'){ showToast('Excel export unavailable — try again in a moment'); return; }
+    const range = getExportRange();
+    if (!range) return;
+    const { header, rows, weekKeys, totals } = buildExportData(range.from, range.to);
+    if (!rows.length){ showToast('No entries in that date range'); return; }
+    const titleRows = [['PUNCH — Time & Pay Log']];
+    if (profile.name) titleRows.push([profile.name]);
+    titleRows.push(['Generated ' + new Date().toLocaleString() + (range.fromVal || range.toVal ? ' · Range: ' + (range.fromVal||'start') + ' to ' + (range.toVal||'now') : '')]);
+    const aoa = [ ...titleRows, [], header ];
+    rows.forEach((row, i)=>{
+      if (i > 0 && weekKeys[i] !== weekKeys[i-1]) aoa.push([]); // blank row = week break
+      aoa.push(row);
+    });
+    aoa.push([]);
+    aoa.push(['Totals', '', '', '', '', +totals.regHours.toFixed(2), +totals.otHours.toFixed(2), +(totals.regHours+totals.otHours).toFixed(2), '', +totals.pay.toFixed(2)]);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:12},{wch:11},{wch:9},{wch:10},{wch:10},{wch:12},{wch:12},{wch:10},{wch:8},{wch:10}];
+    ws['!merges'] = titleRows.map((_, r) => ({ s:{r,c:0}, e:{r,c:9} }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Punch Log');
+    const wbout = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+    await offerDownload(exportFilename('punch-log', range) + '.xlsx', new Blob([wbout], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  }
+
+  // jsPDF's built-in fonts (helvetica/times/courier) only support WinAnsi (Latin-1) glyphs.
+  // A currency symbol outside that range (like the cedi sign) renders as a garbled glyph,
+  // so PDF exports fall back to a plain text label instead of the symbol.
+  function pdfCurrencyLabel(){
+    const c = settings.currency || '';
+    if (!c) return '';
+    if (c.charCodeAt(0) > 255){
+      return c === '₵' ? 'GHS' : 'CUR';
+    }
+    return c;
+  }
+
+  async function exportPDF(){
+    if (typeof window.jspdf === 'undefined'){ showToast('PDF export unavailable — try again in a moment'); return; }
+    const range = getExportRange();
+    if (!range) return;
+    const { jsPDF } = window.jspdf;
+    const { header, rows, weekKeys, totals } = buildExportData(range.from, range.to);
+    if (!rows.length){ showToast('No entries in that date range'); return; }
+    const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(20,20,20);
+    doc.text('PUNCH — Time & Pay Log', 40, 40);
+    let headerY = 58;
+    if (profile.name){
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(60,56,50);
+      doc.text(profile.name, 40, headerY);
+      headerY += 16;
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(110,106,98);
+    const rangeNote = (range.fromVal || range.toVal) ? ' · Range: ' + (range.fromVal||'start') + ' to ' + (range.toVal||'now') : '';
+    doc.text('Generated ' + new Date().toLocaleString() + rangeNote, 40, headerY);
+    const tableStartY = headerY + 16;
+
+    // Row indices (0-based, within `rows`) that end a Monday–Sunday week — draw a
+    // thicker rule beneath these once the table is rendered.
+    const weekBreakAfter = new Set();
+    rows.forEach((row, i)=>{
+      if (i < rows.length - 1 && weekKeys[i] !== weekKeys[i+1]) weekBreakAfter.add(i);
+    });
+
+    doc.autoTable({
+      head: [header],
+      body: rows,
+      startY: tableStartY,
+      styles: { font:'helvetica', fontSize:9, cellPadding:6, textColor:[30,28,26] },
+      headStyles: { fillColor:[17,16,30], textColor:[124,111,255], fontStyle:'bold' },
+      alternateRowStyles: { fillColor:[247,245,240] },
+      foot: [['Totals','','','', '', totals.regHours.toFixed(2), totals.otHours.toFixed(2), (totals.regHours+totals.otHours).toFixed(2), '', pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
+      footStyles: { fillColor:[124,111,255], textColor:[255,255,255], fontStyle:'bold' },
+      didDrawCell: (data)=>{
+        if (data.section !== 'body') return;
+        if (!weekBreakAfter.has(data.row.index)) return;
+        if (data.column.index !== data.table.columns.length - 1) return;
+        const y = data.cell.y + data.cell.height;
+        doc.setLineWidth(1.6);
+        doc.setDrawColor(124,111,255);
+        doc.line(data.settings.margin.left, y, doc.internal.pageSize.getWidth() - data.settings.margin.right, y);
+      }
+    });
+
+    const blob = doc.output('blob');
+    await offerDownload(exportFilename('punch-log', range) + '.pdf', blob);
+  }
+
+  document.getElementById('exportToggleBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    document.getElementById('exportDropdown').classList.toggle('open');
+  });
+  document.querySelectorAll('.export-option').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      document.getElementById('exportDropdown').classList.remove('open');
+      const fmt = btn.dataset.format;
+      if (fmt === 'csv') await exportCSV();
+      else if (fmt === 'xlsx') await exportXLSX();
+      else if (fmt === 'pdf') await exportPDF();
+    });
+  });
+  document.addEventListener('click', (e)=>{
+    const menu = document.getElementById('exportMenu');
+    if (menu && !menu.contains(e.target)){
+      document.getElementById('exportDropdown').classList.remove('open');
+    }
+  });
+
+  // tick the live clock + elapsed timer every 30s (and the header clock every 1s)
+  setInterval(()=>{ document.getElementById('clockTime').textContent = fmtClock(new Date()); }, 1000);
+  setInterval(()=>{ renderStatus(new Date()); }, 30000);
+
+  init();
+})();
+</script>
+</body>
+</html>
