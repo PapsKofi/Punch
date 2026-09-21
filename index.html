@@ -455,7 +455,7 @@
     </details>
   </div>
 
-  <footer>Pay shown is <strong>overtime pay only</strong> — your regular hours (up to 8/day on a weekday) are assumed to be covered by a separate salary and aren't included in these figures. On a weekday, the normal 8-hour shift is anchored to a 6am start — time worked before 6am is treated as coming in early and isn't counted at all (not regular, not overtime), no matter how early you clock in (your actual clock-in time is still recorded as-is). On a weekend/holiday, all hours worked count as overtime. Overtime is paid at hourly rate × that day's rate multiplier. Weekend = Saturday &amp; Sunday. Holidays are only applied to a day once marked. Adjust rates and threshold in Settings.</footer>
+  <footer>Pay shown is <strong>overtime pay only</strong> — your regular hours (up to 8/day on a weekday) are assumed to be covered by a separate salary and aren't included in these figures. On any day — weekday, weekend, or holiday — the day is anchored to a 6am start: time worked before 6am is treated as coming in early and isn't counted at all (not regular, not overtime), no matter how early you clock in (your actual clock-in time is still recorded as-is). On a weekday, hours from 6am up to the threshold are regular and the rest is overtime. On a weekend/holiday, all hours from 6am onward count as overtime. Overtime is paid at hourly rate × that day's rate multiplier. Weekend = Saturday &amp; Sunday. Holidays are only applied to a day once marked. Adjust rates and threshold in Settings.</footer>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -569,16 +569,20 @@
   // Normal hours are drawn from what's worked at/after 6am, up to the threshold, and anything
   // beyond that (still counted from 6am onward) is overtime.
   // Weekend/holiday: the whole day counts as overtime (there's no "normal" shift on those days).
+  // Weekday: the normal 8-hour shift is anchored to a 6am start, regardless of the actual
+  // clock-in time. Time worked before 6am is coming in early — it isn't counted at all.
+  // Weekend/holiday: also anchored to 6am — time before 6am doesn't count, and everything
+  // from 6am onward is overtime in full (there's no "normal" shift on those days).
   function splitHours(d, totalMs, threshold, earlyMs){
     const type = dayType(d);
     earlyMs = earlyMs || 0;
+    const afterSixMs = Math.max(0, totalMs - earlyMs);
     if (type === 'weekday'){
-      const afterSixMs = Math.max(0, totalMs - earlyMs);
       const regMs = Math.min(afterSixMs, threshold*3600000);
       const otMs = Math.max(0, afterSixMs - threshold*3600000);
       return { type, regMs, otMs };
     }
-    return { type, regMs: 0, otMs: totalMs };
+    return { type, regMs: 0, otMs: afterSixMs };
   }
   function fmtMoney(n){
     const v = (isFinite(n) ? n : 0);
