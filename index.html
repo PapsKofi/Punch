@@ -505,9 +505,9 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
 <script>
 (function(){
   "use strict";
@@ -1640,6 +1640,15 @@
   // tick the live clock + elapsed timer every 30s (and the header clock every 1s)
   setInterval(()=>{ document.getElementById('clockTime').textContent = fmtClock(new Date()); }, 1000);
   setInterval(()=>{ renderStatus(new Date()); }, 30000);
+
+  // Mobile browsers throttle/pause timers while the app is backgrounded or the screen
+  // is locked. Without this, times freeze until you fully close and reopen the app —
+  // force an immediate refresh the moment it's visible/focused again instead of waiting
+  // for the next slow timer tick.
+  function refreshNow(){ render(); }
+  document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) refreshNow(); });
+  window.addEventListener('pageshow', refreshNow);
+  window.addEventListener('focus', refreshNow);
 
   init();
 })();
