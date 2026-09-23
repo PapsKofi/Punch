@@ -1564,30 +1564,54 @@
     return c;
   }
 
+  function pdfDayTypeLabel(type){
+    return type === 'weekday' ? 'Workday' : (type === 'weekend' ? 'Restday' : 'Holiday');
+  }
+  function pdfDateCell(dateKeyStr){
+    const d = new Date(dateKeyStr + 'T00:00:00');
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    return dd + '-' + mm + '-' + d.getFullYear() + ' ' + d.toLocaleDateString(undefined,{weekday:'short'});
+  }
+
   async function exportPDF(){
     if (typeof window.jspdf === 'undefined'){ showToast('PDF export unavailable — try again in a moment'); return; }
     const range = getExportRange();
     if (!range) return;
     const { jsPDF } = window.jspdf;
-    const { header, rows, weekKeys, totals } = buildExportData(range.from, range.to);
+    const { rows, weekKeys, totals } = buildExportData(range.from, range.to);
     if (!rows.length){ showToast('No entries in that date range'); return; }
     const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 40;
 
+    // ---- letterhead ----
     doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(20,20,20);
-    doc.text('PUNCH — Time & Pay Log', 40, 40);
-    let headerY = 58;
-    if (profile.name){
-      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(60,56,50);
-      doc.text(profile.name, 40, headerY);
-      headerY += 16;
-    }
-    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(110,106,98);
-    const rangeNote = (range.fromVal || range.toVal) ? ' · Range: ' + (range.fromVal||'start') + ' to ' + (range.toVal||'now') : '';
-    doc.text('Generated ' + new Date().toLocaleString() + rangeNote, 40, headerY);
-    const tableStartY = headerY + 16;
+    doc.text('Electronic Time Card', marginX, 40);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(90,90,90);
+    doc.text('PUNCH', pageWidth - marginX, 34, { align:'right' });
 
-    // Row indices (0-based, within `rows`) that end a Monday–Sunday week — draw a
-    // thicker rule beneath these once the table is rendered.
+    let infoY = 58;
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    doc.text('Name: ' + (profile.name || '—'), marginX, infoY);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(90,90,90);
+    const rangeNote = (range.fromVal || range.toVal)
+      ? (range.fromVal || 'start') + ' to ' + (range.toVal || 'now')
+      : 'Full history';
+    doc.text('Period: ' + rangeNote, pageWidth - marginX, infoY, { align:'right' });
+    infoY += 14;
+    doc.text('Generated ' + new Date().toLocaleString(), marginX, infoY);
+    const tableStartY = infoY + 14;
+
+    // ---- main table (mirrors a printed timecard: Date, Day type, In, Out, Work, Overtime, Amount) ----
+    const header = ['Date','Day Type','In','Out','Work (h)','Overtime (h)','Amount'];
+    const body = rows.map(r => [
+      pdfDateCell(r[0]), pdfDayTypeLabel(r[2]), r[3], r[4],
+      r[5].toFixed(2), r[6].toFixed(2), pdfCurrencyLabel()+' '+r[9].toFixed(2)
+    ]);
+
+    // Row indices that end a Monday–Sunday week — dashed rule beneath, like the
+    // week boundary in a standard printed timecard.
     const weekBreakAfter = new Set();
     rows.forEach((row, i)=>{
       if (i < rows.length - 1 && weekKeys[i] !== weekKeys[i+1]) weekBreakAfter.add(i);
@@ -1595,23 +1619,60 @@
 
     doc.autoTable({
       head: [header],
-      body: rows,
+      body,
       startY: tableStartY,
-      styles: { font:'helvetica', fontSize:9, cellPadding:6, textColor:[30,28,26] },
-      headStyles: { fillColor:[17,16,30], textColor:[124,111,255], fontStyle:'bold' },
-      alternateRowStyles: { fillColor:[247,245,240] },
-      foot: [['Totals','','','', '', totals.regHours.toFixed(2), totals.otHours.toFixed(2), (totals.regHours+totals.otHours).toFixed(2), '', pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
-      footStyles: { fillColor:[124,111,255], textColor:[255,255,255], fontStyle:'bold' },
+      theme: 'grid',
+      styles: { font:'helvetica', fontSize:9, cellPadding:5, textColor:[20,20,20], lineColor:[120,120,120], lineWidth:0.5 },
+      headStyles: { fillColor:[230,230,230], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
+      columnStyles: { 6: { fontStyle:'bold' } },
+      foot: [['Totals','','', '', totals.regHours.toFixed(2), totals.otHours.toFixed(2), pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
+      footStyles: { fillColor:[230,230,230], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
       didDrawCell: (data)=>{
         if (data.section !== 'body') return;
         if (!weekBreakAfter.has(data.row.index)) return;
         if (data.column.index !== data.table.columns.length - 1) return;
         const y = data.cell.y + data.cell.height;
-        doc.setLineWidth(1.6);
-        doc.setDrawColor(124,111,255);
-        doc.line(data.settings.margin.left, y, doc.internal.pageSize.getWidth() - data.settings.margin.right, y);
+        doc.setLineWidth(1.3);
+        doc.setLineDashPattern([3,2], 0);
+        doc.setDrawColor(90,90,90);
+        doc.line(data.settings.margin.left, y, pageWidth - data.settings.margin.right, y);
+        doc.setLineDashPattern([], 0);
       }
     });
+
+    // ---- summary by day type (Workday / Restday / Holiday) ----
+    const byType = { weekday: { days:0, work:0, ot:0, amount:0 }, weekend: { days:0, work:0, ot:0, amount:0 }, holiday: { days:0, work:0, ot:0, amount:0 } };
+    rows.forEach(r=>{
+      const t = byType[r[2]];
+      t.days += 1; t.work += r[5]; t.ot += r[6]; t.amount += r[9];
+    });
+    const summaryRows = ['weekday','weekend','holiday'].map(t => [
+      pdfDayTypeLabel(t), byType[t].days, byType[t].work.toFixed(2), byType[t].ot.toFixed(2), pdfCurrencyLabel()+' '+byType[t].amount.toFixed(2)
+    ]);
+
+    doc.autoTable({
+      head: [['Day Type','Days','Work (h)','Overtime (h)','Amount']],
+      body: summaryRows,
+      foot: [['Total', rows.length, totals.regHours.toFixed(2), totals.otHours.toFixed(2), pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
+      startY: doc.lastAutoTable.finalY + 20,
+      theme: 'grid',
+      tableWidth: 340,
+      margin: { left: marginX },
+      styles: { font:'helvetica', fontSize:9, cellPadding:5, textColor:[20,20,20], lineColor:[120,120,120], lineWidth:0.5 },
+      headStyles: { fillColor:[230,230,230], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
+      footStyles: { fillColor:[245,245,245], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
+    });
+
+    // ---- signature line ----
+    const sigY = doc.lastAutoTable.finalY + 40;
+    doc.setDrawColor(120,120,120); doc.setLineWidth(0.6);
+    doc.line(marginX, sigY, marginX + 200, sigY);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(90,90,90);
+    doc.text('Employee / Date', marginX, sigY + 12);
+    if (profile.name){
+      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(20,20,20);
+      doc.text(profile.name, marginX, sigY - 6);
+    }
 
     const blob = doc.output('blob');
     await offerDownload(exportFilename('punch-log', range) + '.pdf', blob);
