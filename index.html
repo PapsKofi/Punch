@@ -1705,19 +1705,26 @@
     const { jsPDF } = window.jspdf;
     const { rows, weekKeys, totals } = buildExportData(range.from, range.to);
     if (!rows.length){ showToast('No entries in that date range'); return; }
-    // Portrait fits far more rows per page than landscape, which matters most here —
-    // a normal pay-period export (a few dozen days) should land on a single page.
-    const doc = new jsPDF({ orientation:'portrait', unit:'pt', format:'a4' });
+
+    // Landscape, full-width daily table — mirrors a standard printed employee
+    // timecard: gridded table on top, borderless summary blocks below, a bare
+    // Totals line, then signature and print footer at the very bottom.
+    const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
-    const marginX = 24;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 22;
+    const fullWidth = pageWidth - marginX*2;
+
     const cellStyle = { font:'helvetica', fontSize:8, cellPadding:{top:2,right:4,bottom:2,left:4}, textColor:[20,20,20], lineColor:[130,130,130], lineWidth:0.4 };
     const headStyle = { fillColor:[230,230,230], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] };
+    const plainStyle = { font:'helvetica', fontSize:7.5, cellPadding:{top:1.5,right:4,bottom:1.5,left:0}, textColor:[30,30,30] };
+    const plainHead = { fontStyle:'bold', textColor:[20,20,20], cellPadding:{top:1.5,right:4,bottom:2,left:0} };
 
     // ---- letterhead ----
-    doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(20,20,20);
-    doc.text('Electronic Time Card', marginX, 28);
+    doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(20,20,20);
+    doc.text('Electronic Time Card', marginX, 26);
     doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(90,90,90);
-    doc.text('PUNCH', pageWidth - marginX, 24, { align:'right' });
+    doc.text('PUNCH', pageWidth - marginX, 22, { align:'right' });
 
     let infoY = 42;
     doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(30,30,30);
@@ -1726,12 +1733,12 @@
     const rangeNote = (range.fromVal || range.toVal)
       ? (range.fromVal || 'start') + ' to ' + (range.toVal || 'now')
       : 'Full history';
-    doc.text('Period: ' + rangeNote, pageWidth - marginX, infoY, { align:'right' });
+    doc.text('Date: ' + rangeNote, pageWidth - marginX, infoY, { align:'right' });
     infoY += 12;
     doc.text('Generated ' + new Date().toLocaleString(), marginX, infoY);
-    const tableStartY = infoY + 10;
+    const tableStartY = infoY + 8;
 
-    // ---- main table: Date, Day Type, In, Out, Work, Overtime, Short, Leave, Amount ----
+    // ---- main table: Date, Day Type, In, Out, Work, OT, Short, Leave, Amount (full width, no foot) ----
     const header = ['Date','Day Type','In','Out','Work (h)','OT (h)','Short (h)','Leave','Amount'];
     const body = rows.map(r => [
       pdfDateCell(r[0]), pdfDayTypeLabel(r[2]), r[3] || '—', r[4] || '—',
@@ -1751,72 +1758,30 @@
       body,
       startY: tableStartY,
       theme: 'grid',
+      tableWidth: fullWidth,
       margin: { left: marginX, right: marginX },
       styles: cellStyle,
       headStyles: headStyle,
       columnStyles: {
-        0:{cellWidth:78}, 1:{cellWidth:52}, 2:{cellWidth:36}, 3:{cellWidth:36},
-        4:{cellWidth:40}, 5:{cellWidth:38}, 6:{cellWidth:40}, 7:{cellWidth:82},
+        0:{cellWidth:90}, 1:{cellWidth:62}, 2:{cellWidth:44}, 3:{cellWidth:44},
+        4:{cellWidth:50}, 5:{cellWidth:46}, 6:{cellWidth:50}, 7:{cellWidth:130},
         8:{cellWidth:'auto', fontStyle:'bold'}
       },
-      foot: [['Totals','','','', totals.regHours.toFixed(2), totals.otHours.toFixed(2), totals.shortHours.toFixed(2), '', pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
-      footStyles: headStyle,
       didDrawCell: (data)=>{
         if (data.section !== 'body') return;
         if (!weekBreakAfter.has(data.row.index)) return;
         if (data.column.index !== data.table.columns.length - 1) return;
         const y = data.cell.y + data.cell.height;
-        doc.setLineWidth(1.2);
+        doc.setLineWidth(1.1);
         doc.setLineDashPattern([3,2], 0);
         doc.setDrawColor(90,90,90);
         doc.line(data.settings.margin.left, y, pageWidth - data.settings.margin.right, y);
         doc.setLineDashPattern([], 0);
       }
     });
+    let y = doc.lastAutoTable.finalY + 12;
 
-    // ---- summary by day type (left) + leave summary (right), side by side ----
-    const byType = { weekday: { days:0, work:0, ot:0, amount:0 }, weekend: { days:0, work:0, ot:0, amount:0 }, holiday: { days:0, work:0, ot:0, amount:0 } };
-    rows.forEach(r=>{
-      const t = byType[r[2]];
-      t.days += 1; t.work += r[5]; t.ot += r[6]; t.amount += r[11];
-    });
-    const typeSummaryRows = ['weekday','weekend','holiday'].map(t => [
-      pdfDayTypeLabel(t), byType[t].days, byType[t].work.toFixed(2), byType[t].ot.toFixed(2), pdfCurrencyLabel()+' '+byType[t].amount.toFixed(2)
-    ]);
-    const summaryStartY = doc.lastAutoTable.finalY + 12;
-
-    doc.autoTable({
-      head: [['Day Type','Days','Work (h)','OT (h)','Amount']],
-      body: typeSummaryRows,
-      foot: [['Total', rows.length, totals.regHours.toFixed(2), totals.otHours.toFixed(2), pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
-      startY: summaryStartY,
-      theme: 'grid',
-      tableWidth: 250,
-      margin: { left: marginX },
-      styles: cellStyle,
-      headStyles: headStyle,
-      footStyles: { fillColor:[245,245,245], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
-    });
-    const typeSummaryFinalY = doc.lastAutoTable.finalY;
-
-    const leaveCounts = {};
-    LEAVE_TYPES.forEach(t => { leaveCounts[t] = 0; });
-    rows.forEach(r => { if (r[9] && leaveCounts.hasOwnProperty(r[9])) leaveCounts[r[9]]++; });
-    const leaveRows = LEAVE_TYPES.map(t => [t, leaveCounts[t]]);
-
-    doc.autoTable({
-      head: [['Leave Type','Days']],
-      body: leaveRows,
-      startY: summaryStartY,
-      theme: 'grid',
-      tableWidth: pageWidth - marginX*2 - 250 - 16,
-      margin: { left: marginX + 250 + 16 },
-      styles: cellStyle,
-      headStyles: headStyle,
-    });
-    const leaveSummaryFinalY = doc.lastAutoTable.finalY;
-
-    // ---- weekly amounts: one row per Mon–Sun week, split by day type ----
+    // ---- weekly amounts: one row per Mon–Sun week, split by day type (borderless) ----
     const weekBuckets = {};
     rows.forEach((r,i)=>{
       const wk = weekKeys[i];
@@ -1830,38 +1795,97 @@
       const total = b.weekday + b.weekend + b.holiday;
       return [
         'Week ' + (idx+1) + '  (' + pdfShortDate(b.start) + ' – ' + pdfShortDate(end) + ')',
-        pdfCurrencyLabel()+' '+b.weekday.toFixed(2),
-        pdfCurrencyLabel()+' '+b.weekend.toFixed(2),
-        pdfCurrencyLabel()+' '+b.holiday.toFixed(2),
-        pdfCurrencyLabel()+' '+total.toFixed(2)
+        b.weekday.toFixed(2), b.weekend.toFixed(2), b.holiday.toFixed(2), total.toFixed(2)
       ];
     });
-
-    const weeklyStartY = Math.max(typeSummaryFinalY, leaveSummaryFinalY) + 14;
-    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(20,20,20);
-    doc.text('Weekly amounts', marginX, weeklyStartY - 4);
-
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(90,90,90);
+    doc.text('Weekly amounts (' + pdfCurrencyLabel() + ')', marginX, y - 2);
     doc.autoTable({
       head: [['Week','Weekday','Weekend','Holiday','Week Total']],
       body: weekRows,
-      startY: weeklyStartY,
-      theme: 'grid',
-      margin: { left: marginX, right: marginX },
-      styles: cellStyle,
-      headStyles: headStyle,
+      startY: y + 4,
+      theme: 'plain',
+      tableWidth: fullWidth * 0.55,
+      margin: { left: marginX },
+      styles: plainStyle,
+      headStyles: plainHead,
       columnStyles: { 4: { fontStyle:'bold' } }
     });
+    const weeklyFinalY = doc.lastAutoTable.finalY;
 
-    // ---- signature line ----
-    const sigY = doc.lastAutoTable.finalY + 26;
+    // ---- day-type summary (left) + leave-type summary (right), side by side, borderless ----
+    const byType = { weekday: { days:0, work:0, ot:0, amount:0 }, weekend: { days:0, work:0, ot:0, amount:0 }, holiday: { days:0, work:0, ot:0, amount:0 } };
+    rows.forEach(r=>{
+      const t = byType[r[2]];
+      t.days += 1; t.work += r[5]; t.ot += r[6]; t.amount += r[11];
+    });
+    const typeSummaryRows = ['weekday','weekend','holiday'].map(t => [
+      pdfDayTypeLabel(t), byType[t].days, byType[t].work.toFixed(2), byType[t].ot.toFixed(2), pdfCurrencyLabel()+' '+byType[t].amount.toFixed(2)
+    ]);
+    const summaryY = weeklyFinalY + 16;
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(90,90,90);
+    doc.text('Day Type', marginX, summaryY - 2);
+    doc.autoTable({
+      head: [['Day Type','Days','Work','OT','Amount']],
+      body: typeSummaryRows,
+      startY: summaryY + 4,
+      theme: 'plain',
+      tableWidth: fullWidth * 0.42,
+      margin: { left: marginX },
+      styles: plainStyle,
+      headStyles: plainHead,
+    });
+    const typeSummaryFinalY = doc.lastAutoTable.finalY;
+
+    const leaveX = marginX + fullWidth * 0.5;
+    const leaveCounts = {};
+    LEAVE_TYPES.forEach(t => { leaveCounts[t] = 0; });
+    rows.forEach(r => { if (r[9] && leaveCounts.hasOwnProperty(r[9])) leaveCounts[r[9]]++; });
+    const leaveRows = LEAVE_TYPES.map(t => [t, leaveCounts[t]]);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(90,90,90);
+    doc.text('Leave Type', leaveX, summaryY - 2);
+    doc.autoTable({
+      head: [['Leave Type','Days']],
+      body: leaveRows,
+      startY: summaryY + 4,
+      theme: 'plain',
+      tableWidth: fullWidth * 0.42,
+      margin: { left: leaveX },
+      styles: plainStyle,
+      headStyles: plainHead,
+    });
+    const leaveSummaryFinalY = doc.lastAutoTable.finalY;
+
+    // ---- bare Total line (no grid, matches a standard timecard footer row) ----
+    const totalY = Math.max(typeSummaryFinalY, leaveSummaryFinalY) + 14;
+    doc.setDrawColor(90,90,90); doc.setLineWidth(0.6);
+    doc.line(marginX, totalY - 9, pageWidth - marginX, totalY - 9);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(20,20,20);
+    doc.text('Total', marginX, totalY);
+    doc.text('Days ' + rows.length, marginX + 60, totalY);
+    doc.text('Work ' + totals.regHours.toFixed(2), marginX + 130, totalY);
+    doc.text('Overtime ' + totals.otHours.toFixed(2), marginX + 220, totalY);
+    doc.text('Short ' + totals.shortHours.toFixed(2), marginX + 320, totalY);
+    doc.text('Amount ' + pdfCurrencyLabel() + ' ' + totals.pay.toFixed(2), marginX + 400, totalY);
+
+    // ---- signature (right) + print footer (bottom of page) ----
+    const sigY = totalY + 30;
     doc.setDrawColor(120,120,120); doc.setLineWidth(0.6);
-    doc.line(marginX, sigY, marginX + 180, sigY);
+    doc.line(pageWidth - marginX - 190, sigY, pageWidth - marginX, sigY);
     doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(90,90,90);
-    doc.text('Employee / Date', marginX, sigY + 11);
+    doc.text('Employee / Date', pageWidth - marginX - 190, sigY + 11);
     if (profile.name){
       doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(20,20,20);
-      doc.text(profile.name, marginX, sigY - 5);
+      doc.text(profile.name, pageWidth - marginX - 190, sigY - 5);
     }
+
+    const footerY = pageHeight - 18;
+    doc.setDrawColor(150,150,150); doc.setLineWidth(0.5);
+    doc.line(marginX, footerY - 10, pageWidth - marginX, footerY - 10);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(120,120,120);
+    doc.text('Printed ' + new Date().toLocaleString(), marginX, footerY);
+    doc.text('PUNCH', pageWidth/2, footerY, { align:'center' });
+    doc.text('Generated by PUNCH', pageWidth - marginX, footerY, { align:'right' });
 
     const blob = doc.output('blob');
     await offerDownload(exportFilename('punch-log', range) + '.pdf', blob);
