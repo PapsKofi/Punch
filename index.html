@@ -215,7 +215,7 @@
   .setting-row .l small{ display:block; color:var(--text-dim); font-size:11px; margin-top:2px; }
   .num-input{ width:64px; background:var(--panel-2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:6px; font-family:'IBM Plex Mono'; text-align:center; }
 
-  .holiday-add{ display:flex; gap:8px; padding:4px 0 10px; }
+  .holiday-add{ display:flex; gap:8px; padding:4px 0 10px; flex-wrap:wrap; }
   .date-input{
     flex:1; background:var(--panel-2); border:1px solid var(--border); border-radius:6px;
     color:var(--text); padding:7px 8px; font-family:'IBM Plex Mono'; font-size:13px;
@@ -473,6 +473,17 @@
     </div>
     <div id="holidayList" class="holiday-list"></div>
     <div class="setting-row" style="align-items:flex-start;">
+      <div class="l">Mark leave<small>Pick a date and leave type — shown in the log's exports</small></div>
+    </div>
+    <div class="holiday-add">
+      <input type="date" id="leaveDateInput" class="date-input" />
+      <select id="leaveTypeInput" class="date-input">
+        <option value="">Type…</option>
+      </select>
+      <button class="btn primary" id="addLeaveBtn">Mark</button>
+    </div>
+    <div id="leaveList" class="holiday-list"></div>
+    <div class="setting-row" style="align-items:flex-start;">
       <div class="l">Export date range<small>Leave blank to export your full history</small></div>
     </div>
     <div class="holiday-add">
@@ -519,9 +530,10 @@
   let usingLocalFallback = false;
   let sessions = [];        // {id, clockIn: ISOstring, clockOut: ISOstring|null}
   let holidays = {};        // dateKey -> true
+  let leaves = {};          // dateKey -> leave type string
   let profile = { name: '', photoId: null };
   let settings = { dailyThreshold: 8, currency: '₵', hourlyRate: 0, weekdayRate: 1, weekendRate: 1, holidayRate: 1, periodStartDay: 22, customRangeStart: null, customRangeEnd: null, appIconAssetId: null, weekPayMode: 'week', weekPayHidden: false, periodPayMode: 'period', periodPayHidden: false };
-  let unsubSessions = null, unsubSettings = null, unsubHolidays = null, unsubProfile = null;
+  let unsubSessions = null, unsubSettings = null, unsubHolidays = null, unsubProfile = null, unsubLeaves = null;
   let busy = false;
   let currencyMigrated = false; // one-time correction: old default was '$', new default is '₵'
   let iconHostAttempted = false; // one-time: replace the data-URI touch icon with a hosted asset URL (more reliable on iOS)
@@ -530,6 +542,8 @@
   const LOCAL_KEY_SETTINGS = "punch_settings_v1";
   const LOCAL_KEY_HOLIDAYS = "punch_holidays_v1";
   const LOCAL_KEY_PROFILE = "punch_profile_v1";
+  const LOCAL_KEY_LEAVES = "punch_leaves_v1";
+  const LEAVE_TYPES = ['Annual Leave','Sick Leave','Compassionate','Maternity Leave','Excuse Duty','Permission','Off Duty'];
 
   // ---------- helpers ----------
   function pad(n){ return String(n).padStart(2,"0"); }
@@ -570,10 +584,14 @@
       holidays = JSON.parse(localStorage.getItem(LOCAL_KEY_HOLIDAYS) || "{}");
       const p = JSON.parse(localStorage.getItem(LOCAL_KEY_PROFILE) || "null");
       if (p) profile = Object.assign({}, profile, p);
+      leaves = JSON.parse(localStorage.getItem(LOCAL_KEY_LEAVES) || "{}");
     }catch(e){ sessions = []; }
   }
   function saveLocalProfile(){
     localStorage.setItem(LOCAL_KEY_PROFILE, JSON.stringify(profile));
+  }
+  function saveLocalLeaves(){
+    localStorage.setItem(LOCAL_KEY_LEAVES, JSON.stringify(leaves));
   }
   function saveLocalSessions(){
     localStorage.setItem(LOCAL_KEY_SESSIONS, JSON.stringify(sessions));
@@ -745,6 +763,18 @@
           const map = {};
           snap.docs.forEach(d => { map[d.id] = true; });
           holidays = map;
+          render();
+        },
+        err => {}
+      );
+    }catch(e){}
+
+    try{
+      unsubLeaves = db.collection('leaves').onSnapshot(
+        snap => {
+          const map = {};
+          snap.docs.forEach(d => { map[d.id] = (d.data()||{}).type || ''; });
+          leaves = map;
           render();
         },
         err => {}
@@ -929,6 +959,24 @@
       showToast(isHoliday ? 'Marked as holiday' : 'Unmarked as holiday');
       render();
     }catch(e){ showToast('Could not update holiday'); }
+  }
+
+  async function setLeave(key, type){
+    try{
+      if (db){ await db.doc('leaves/'+key).set({ type }); }
+      else { leaves[key] = type; saveLocalLeaves(); }
+      showToast('Leave marked: ' + type);
+      render();
+    }catch(e){ showToast('Could not save leave'); }
+  }
+
+  async function removeLeave(key){
+    try{
+      if (db){ await db.doc('leaves/'+key).delete(); }
+      else { delete leaves[key]; saveLocalLeaves(); }
+      showToast('Leave removed');
+      render();
+    }catch(e){ showToast('Could not remove leave'); }
   }
 
   // ---------- derived data ----------
@@ -1296,6 +1344,7 @@
       }
     });
     renderHolidayList();
+    renderLeaveList();
   }
 
   function renderHolidayList(){
@@ -1313,6 +1362,36 @@
       label.textContent = fmtDateShort(d);
       const remove = document.createElement('button'); remove.className = 'icon-btn'; remove.textContent = 'Remove';
       remove.onclick = () => toggleHoliday(key);
+      item.appendChild(label); item.appendChild(remove);
+      el.appendChild(item);
+    });
+  }
+
+  function populateLeaveTypeSelect(){
+    const sel = document.getElementById('leaveTypeInput');
+    if (sel.dataset.populated) return;
+    LEAVE_TYPES.forEach(t=>{
+      const opt = document.createElement('option'); opt.value = t; opt.textContent = t;
+      sel.appendChild(opt);
+    });
+    sel.dataset.populated = '1';
+  }
+
+  function renderLeaveList(){
+    const el = document.getElementById('leaveList');
+    const keys = Object.keys(leaves).sort();
+    if (!keys.length){
+      el.innerHTML = '<div class="holiday-empty">No leave marked yet.</div>';
+      return;
+    }
+    el.innerHTML = '';
+    keys.forEach(key=>{
+      const item = document.createElement('div'); item.className = 'holiday-item';
+      const label = document.createElement('span'); label.className = 'hd';
+      const d = new Date(key + 'T00:00:00');
+      label.textContent = fmtDateShort(d) + ' — ' + leaves[key];
+      const remove = document.createElement('button'); remove.className = 'icon-btn'; remove.textContent = 'Remove';
+      remove.onclick = () => removeLeave(key);
       item.appendChild(label); item.appendChild(remove);
       el.appendChild(item);
     });
@@ -1415,6 +1494,19 @@
     input.value = '';
   });
 
+  populateLeaveTypeSelect();
+  document.getElementById('addLeaveBtn').addEventListener('click', ()=>{
+    const dateInput = document.getElementById('leaveDateInput');
+    const typeInput = document.getElementById('leaveTypeInput');
+    const dateVal = dateInput.value;
+    const typeVal = typeInput.value;
+    if (!dateVal){ showToast('Pick a date first'); return; }
+    if (!typeVal){ showToast('Pick a leave type'); return; }
+    setLeave(dateVal, typeVal);
+    dateInput.value = '';
+    typeInput.value = '';
+  });
+
   document.getElementById('addManual').addEventListener('click', ()=>{
     const el = document.getElementById('ledger');
     const holder = document.createElement('div');
@@ -1438,39 +1530,68 @@
   document.getElementById('settingsBackBtn').addEventListener('click', ()=> closePage('settingsPage'));
 
   // ---------- export (day-level: date, type, in/out, regular/overtime/total, rate, pay) ----------
+  // Row layout: [0]date [1]dayName [2]type [3]in [4]out [5]regHours [6]otHours
+  //             [7]shortHours [8]totalHours [9]leaveType [10]rate [11]pay
   function buildExportData(rangeFrom, rangeTo){
     const threshold = settings.dailyThreshold || 8;
-    const header = ['Date','Day Name','Day Type','Clock In','Clock Out','Regular (h)','Overtime (h)','Total (h)','OT Rate','Overtime Pay'];
-    let groups = groupByDay(new Date()).slice().sort((a,b)=> a.date - b.date);
-    if (rangeFrom) groups = groups.filter(g => g.date >= rangeFrom);
-    if (rangeTo) groups = groups.filter(g => g.date <= rangeTo);
-    let totalReg = 0, totalOt = 0, totalPay = 0;
+    const header = ['Date','Day Name','Day Type','Clock In','Clock Out','Regular (h)','Overtime (h)','Short (h)','Total (h)','Leave','OT Rate','Overtime Pay'];
 
+    const groups = groupByDay(new Date());
+    const groupByKey = {};
+    groups.forEach(g => { groupByKey[g.key] = g; });
+
+    // Union of days that have punches and/or a marked leave, so a pure leave day
+    // (no clock-in at all) still gets its own row in the export.
+    const allKeys = new Set(Object.keys(groupByKey));
+    Object.keys(leaves).forEach(k => allKeys.add(k));
+
+    let dateList = Array.from(allKeys).map(k => new Date(k + 'T00:00:00'));
+    if (rangeFrom) dateList = dateList.filter(d => d >= rangeFrom);
+    if (rangeTo) dateList = dateList.filter(d => d <= rangeTo);
+    dateList.sort((a,b)=> a - b);
+
+    let totalReg = 0, totalOt = 0, totalShort = 0, totalPay = 0;
     const rows = [];
     const weekKeys = [];
 
-    groups.forEach(g=>{
-      const { type, regMs, otMs } = splitHours(g.date, g.totalMs, threshold, g.earlyMs);
+    dateList.forEach(d=>{
+      const key = dateKey(d);
+      const g = groupByKey[key];
+      const leaveType = leaves[key] || '';
+      const type = dayType(d);
       const rate = rateForType(type);
-      const pay = payForDay(g.date, g.totalMs, threshold, g.earlyMs);
-      totalReg += regMs; totalOt += otMs; totalPay += pay;
 
-      const sorted = g.sessions.slice().sort((a,b)=> new Date(a.clockIn)-new Date(b.clockIn));
-      const firstIn = sorted[0] ? fmtClock(new Date(sorted[0].clockIn)) : '';
-      const lastOut = sorted.length ? (sorted[sorted.length-1].clockOut ? fmtClock(new Date(sorted[sorted.length-1].clockOut)) : 'open') : '';
-      const dayName = g.date.toLocaleDateString(undefined, { weekday: 'long' });
+      let regHours = 0, otHours = 0, shortHours = 0, firstIn = '', lastOut = '', pay = 0;
+      if (g){
+        const split = splitHours(g.date, g.totalMs, threshold, g.earlyMs);
+        regHours = split.regMs / 3600000;
+        otHours = split.otMs / 3600000;
+        if (type === 'weekday' && regHours < threshold) shortHours = threshold - regHours;
+        const sorted = g.sessions.slice().sort((a,b)=> new Date(a.clockIn)-new Date(b.clockIn));
+        firstIn = sorted[0] ? fmtClock(new Date(sorted[0].clockIn)) : '';
+        lastOut = sorted.length ? (sorted[sorted.length-1].clockOut ? fmtClock(new Date(sorted[sorted.length-1].clockOut)) : 'open') : '';
+        pay = payForDay(g.date, g.totalMs, threshold, g.earlyMs);
+      }
+
+      totalReg += regHours; totalOt += otHours; totalShort += shortHours; totalPay += pay;
+      const dayName = d.toLocaleDateString(undefined, { weekday: 'long' });
+      const totalHours = regHours + otHours;
 
       rows.push([
-        dateKey(g.date), dayName, type, firstIn, lastOut,
-        +(regMs/3600000).toFixed(2), +(otMs/3600000).toFixed(2), +((regMs+otMs)/3600000).toFixed(2),
-        rate, +pay.toFixed(2)
+        key, dayName, type, firstIn, lastOut,
+        +regHours.toFixed(2), +otHours.toFixed(2), +shortHours.toFixed(2), +totalHours.toFixed(2),
+        leaveType, rate, +pay.toFixed(2)
       ]);
       // Weeks run Monday–Sunday; a leading partial week (e.g. data starting on a
       // Saturday) is its own short group rather than being merged into the next one.
-      weekKeys.push(dateKey(startOfWeek(g.date)));
+      weekKeys.push(dateKey(startOfWeek(d)));
     });
 
-    return { header, rows, weekKeys, totals: { regHours: totalReg/3600000, otHours: totalOt/3600000, pay: totalPay }, currency: settings.currency };
+    return {
+      header, rows, weekKeys,
+      totals: { regHours: totalReg, otHours: totalOt, shortHours: totalShort, pay: totalPay },
+      currency: settings.currency
+    };
   }
 
   async function offerDownload(filename, data){
@@ -1521,7 +1642,7 @@
       lines.push(row);
     });
     lines.push([]);
-    lines.push(['Totals', '', '', '', '', +totals.regHours.toFixed(2), +totals.otHours.toFixed(2), +(totals.regHours+totals.otHours).toFixed(2), '', +totals.pay.toFixed(2)]);
+    lines.push(['Totals', '', '', '', '', +totals.regHours.toFixed(2), +totals.otHours.toFixed(2), +totals.shortHours.toFixed(2), +(totals.regHours+totals.otHours).toFixed(2), '', '', +totals.pay.toFixed(2)]);
     const csv = lines.map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
     await offerDownload(exportFilename('punch-log', range) + '.csv', csv);
   }
@@ -1541,11 +1662,11 @@
       aoa.push(row);
     });
     aoa.push([]);
-    aoa.push(['Totals', '', '', '', '', +totals.regHours.toFixed(2), +totals.otHours.toFixed(2), +(totals.regHours+totals.otHours).toFixed(2), '', +totals.pay.toFixed(2)]);
+    aoa.push(['Totals', '', '', '', '', +totals.regHours.toFixed(2), +totals.otHours.toFixed(2), +totals.shortHours.toFixed(2), +(totals.regHours+totals.otHours).toFixed(2), '', '', +totals.pay.toFixed(2)]);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{wch:12},{wch:11},{wch:9},{wch:10},{wch:10},{wch:12},{wch:12},{wch:10},{wch:8},{wch:10}];
-    ws['!merges'] = titleRows.map((_, r) => ({ s:{r,c:0}, e:{r,c:9} }));
+    ws['!cols'] = [{wch:12},{wch:11},{wch:9},{wch:10},{wch:10},{wch:10},{wch:11},{wch:9},{wch:9},{wch:14},{wch:8},{wch:10}];
+    ws['!merges'] = titleRows.map((_, r) => ({ s:{r,c:0}, e:{r,c:11} }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Punch Log');
     const wbout = XLSX.write(wb, { bookType:'xlsx', type:'array' });
@@ -1573,6 +1694,9 @@
     const mm = String(d.getMonth()+1).padStart(2,'0');
     return dd + '-' + mm + '-' + d.getFullYear() + ' ' + d.toLocaleDateString(undefined,{weekday:'short'});
   }
+  function pdfShortDate(d){
+    return String(d.getDate()).padStart(2,'0') + '-' + String(d.getMonth()+1).padStart(2,'0');
+  }
 
   async function exportPDF(){
     if (typeof window.jspdf === 'undefined'){ showToast('PDF export unavailable — try again in a moment'); return; }
@@ -1581,33 +1705,38 @@
     const { jsPDF } = window.jspdf;
     const { rows, weekKeys, totals } = buildExportData(range.from, range.to);
     if (!rows.length){ showToast('No entries in that date range'); return; }
-    const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
+    // Portrait fits far more rows per page than landscape, which matters most here —
+    // a normal pay-period export (a few dozen days) should land on a single page.
+    const doc = new jsPDF({ orientation:'portrait', unit:'pt', format:'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
-    const marginX = 40;
+    const marginX = 24;
+    const cellStyle = { font:'helvetica', fontSize:8, cellPadding:{top:2,right:4,bottom:2,left:4}, textColor:[20,20,20], lineColor:[130,130,130], lineWidth:0.4 };
+    const headStyle = { fillColor:[230,230,230], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] };
 
     // ---- letterhead ----
-    doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(20,20,20);
-    doc.text('Electronic Time Card', marginX, 40);
-    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(90,90,90);
-    doc.text('PUNCH', pageWidth - marginX, 34, { align:'right' });
+    doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(20,20,20);
+    doc.text('Electronic Time Card', marginX, 28);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(90,90,90);
+    doc.text('PUNCH', pageWidth - marginX, 24, { align:'right' });
 
-    let infoY = 58;
-    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    let infoY = 42;
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(30,30,30);
     doc.text('Name: ' + (profile.name || '—'), marginX, infoY);
-    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(90,90,90);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(90,90,90);
     const rangeNote = (range.fromVal || range.toVal)
       ? (range.fromVal || 'start') + ' to ' + (range.toVal || 'now')
       : 'Full history';
     doc.text('Period: ' + rangeNote, pageWidth - marginX, infoY, { align:'right' });
-    infoY += 14;
+    infoY += 12;
     doc.text('Generated ' + new Date().toLocaleString(), marginX, infoY);
-    const tableStartY = infoY + 14;
+    const tableStartY = infoY + 10;
 
-    // ---- main table (mirrors a printed timecard: Date, Day type, In, Out, Work, Overtime, Amount) ----
-    const header = ['Date','Day Type','In','Out','Work (h)','Overtime (h)','Amount'];
+    // ---- main table: Date, Day Type, In, Out, Work, Overtime, Short, Leave, Amount ----
+    const header = ['Date','Day Type','In','Out','Work (h)','OT (h)','Short (h)','Leave','Amount'];
     const body = rows.map(r => [
-      pdfDateCell(r[0]), pdfDayTypeLabel(r[2]), r[3], r[4],
-      r[5].toFixed(2), r[6].toFixed(2), pdfCurrencyLabel()+' '+r[9].toFixed(2)
+      pdfDateCell(r[0]), pdfDayTypeLabel(r[2]), r[3] || '—', r[4] || '—',
+      r[5].toFixed(2), r[6].toFixed(2), (r[7] > 0 ? r[7].toFixed(2) : '—'),
+      r[9] || '—', pdfCurrencyLabel()+' '+r[11].toFixed(2)
     ]);
 
     // Row indices that end a Monday–Sunday week — dashed rule beneath, like the
@@ -1622,17 +1751,22 @@
       body,
       startY: tableStartY,
       theme: 'grid',
-      styles: { font:'helvetica', fontSize:9, cellPadding:5, textColor:[20,20,20], lineColor:[120,120,120], lineWidth:0.5 },
-      headStyles: { fillColor:[230,230,230], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
-      columnStyles: { 6: { fontStyle:'bold' } },
-      foot: [['Totals','','', '', totals.regHours.toFixed(2), totals.otHours.toFixed(2), pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
-      footStyles: { fillColor:[230,230,230], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
+      margin: { left: marginX, right: marginX },
+      styles: cellStyle,
+      headStyles: headStyle,
+      columnStyles: {
+        0:{cellWidth:78}, 1:{cellWidth:52}, 2:{cellWidth:36}, 3:{cellWidth:36},
+        4:{cellWidth:40}, 5:{cellWidth:38}, 6:{cellWidth:40}, 7:{cellWidth:82},
+        8:{cellWidth:'auto', fontStyle:'bold'}
+      },
+      foot: [['Totals','','','', totals.regHours.toFixed(2), totals.otHours.toFixed(2), totals.shortHours.toFixed(2), '', pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
+      footStyles: headStyle,
       didDrawCell: (data)=>{
         if (data.section !== 'body') return;
         if (!weekBreakAfter.has(data.row.index)) return;
         if (data.column.index !== data.table.columns.length - 1) return;
         const y = data.cell.y + data.cell.height;
-        doc.setLineWidth(1.3);
+        doc.setLineWidth(1.2);
         doc.setLineDashPattern([3,2], 0);
         doc.setDrawColor(90,90,90);
         doc.line(data.settings.margin.left, y, pageWidth - data.settings.margin.right, y);
@@ -1640,38 +1774,93 @@
       }
     });
 
-    // ---- summary by day type (Workday / Restday / Holiday) ----
+    // ---- summary by day type (left) + leave summary (right), side by side ----
     const byType = { weekday: { days:0, work:0, ot:0, amount:0 }, weekend: { days:0, work:0, ot:0, amount:0 }, holiday: { days:0, work:0, ot:0, amount:0 } };
     rows.forEach(r=>{
       const t = byType[r[2]];
-      t.days += 1; t.work += r[5]; t.ot += r[6]; t.amount += r[9];
+      t.days += 1; t.work += r[5]; t.ot += r[6]; t.amount += r[11];
     });
-    const summaryRows = ['weekday','weekend','holiday'].map(t => [
+    const typeSummaryRows = ['weekday','weekend','holiday'].map(t => [
       pdfDayTypeLabel(t), byType[t].days, byType[t].work.toFixed(2), byType[t].ot.toFixed(2), pdfCurrencyLabel()+' '+byType[t].amount.toFixed(2)
     ]);
+    const summaryStartY = doc.lastAutoTable.finalY + 12;
 
     doc.autoTable({
-      head: [['Day Type','Days','Work (h)','Overtime (h)','Amount']],
-      body: summaryRows,
+      head: [['Day Type','Days','Work (h)','OT (h)','Amount']],
+      body: typeSummaryRows,
       foot: [['Total', rows.length, totals.regHours.toFixed(2), totals.otHours.toFixed(2), pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
-      startY: doc.lastAutoTable.finalY + 20,
+      startY: summaryStartY,
       theme: 'grid',
-      tableWidth: 340,
+      tableWidth: 250,
       margin: { left: marginX },
-      styles: { font:'helvetica', fontSize:9, cellPadding:5, textColor:[20,20,20], lineColor:[120,120,120], lineWidth:0.5 },
-      headStyles: { fillColor:[230,230,230], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
+      styles: cellStyle,
+      headStyles: headStyle,
       footStyles: { fillColor:[245,245,245], textColor:[20,20,20], fontStyle:'bold', lineColor:[90,90,90] },
+    });
+    const typeSummaryFinalY = doc.lastAutoTable.finalY;
+
+    const leaveCounts = {};
+    LEAVE_TYPES.forEach(t => { leaveCounts[t] = 0; });
+    rows.forEach(r => { if (r[9] && leaveCounts.hasOwnProperty(r[9])) leaveCounts[r[9]]++; });
+    const leaveRows = LEAVE_TYPES.map(t => [t, leaveCounts[t]]);
+
+    doc.autoTable({
+      head: [['Leave Type','Days']],
+      body: leaveRows,
+      startY: summaryStartY,
+      theme: 'grid',
+      tableWidth: pageWidth - marginX*2 - 250 - 16,
+      margin: { left: marginX + 250 + 16 },
+      styles: cellStyle,
+      headStyles: headStyle,
+    });
+    const leaveSummaryFinalY = doc.lastAutoTable.finalY;
+
+    // ---- weekly amounts: one row per Mon–Sun week, split by day type ----
+    const weekBuckets = {};
+    rows.forEach((r,i)=>{
+      const wk = weekKeys[i];
+      if (!weekBuckets[wk]) weekBuckets[wk] = { weekday:0, weekend:0, holiday:0, start: new Date(wk+'T00:00:00') };
+      weekBuckets[wk][r[2]] += r[11];
+    });
+    const sortedWeekKeys = Object.keys(weekBuckets).sort();
+    const weekRows = sortedWeekKeys.map((wk, idx)=>{
+      const b = weekBuckets[wk];
+      const end = new Date(b.start); end.setDate(b.start.getDate()+6);
+      const total = b.weekday + b.weekend + b.holiday;
+      return [
+        'Week ' + (idx+1) + '  (' + pdfShortDate(b.start) + ' – ' + pdfShortDate(end) + ')',
+        pdfCurrencyLabel()+' '+b.weekday.toFixed(2),
+        pdfCurrencyLabel()+' '+b.weekend.toFixed(2),
+        pdfCurrencyLabel()+' '+b.holiday.toFixed(2),
+        pdfCurrencyLabel()+' '+total.toFixed(2)
+      ];
+    });
+
+    const weeklyStartY = Math.max(typeSummaryFinalY, leaveSummaryFinalY) + 14;
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(20,20,20);
+    doc.text('Weekly amounts', marginX, weeklyStartY - 4);
+
+    doc.autoTable({
+      head: [['Week','Weekday','Weekend','Holiday','Week Total']],
+      body: weekRows,
+      startY: weeklyStartY,
+      theme: 'grid',
+      margin: { left: marginX, right: marginX },
+      styles: cellStyle,
+      headStyles: headStyle,
+      columnStyles: { 4: { fontStyle:'bold' } }
     });
 
     // ---- signature line ----
-    const sigY = doc.lastAutoTable.finalY + 40;
+    const sigY = doc.lastAutoTable.finalY + 26;
     doc.setDrawColor(120,120,120); doc.setLineWidth(0.6);
-    doc.line(marginX, sigY, marginX + 200, sigY);
-    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(90,90,90);
-    doc.text('Employee / Date', marginX, sigY + 12);
+    doc.line(marginX, sigY, marginX + 180, sigY);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(90,90,90);
+    doc.text('Employee / Date', marginX, sigY + 11);
     if (profile.name){
-      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(20,20,20);
-      doc.text(profile.name, marginX, sigY - 6);
+      doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(20,20,20);
+      doc.text(profile.name, marginX, sigY - 5);
     }
 
     const blob = doc.output('blob');
