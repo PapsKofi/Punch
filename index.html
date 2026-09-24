@@ -1758,14 +1758,14 @@
       body,
       startY: tableStartY,
       theme: 'grid',
-      tableWidth: fullWidth,
+      tableWidth: 480,
       margin: { left: marginX, right: marginX },
       styles: cellStyle,
       headStyles: headStyle,
       columnStyles: {
-        0:{cellWidth:90}, 1:{cellWidth:62}, 2:{cellWidth:44}, 3:{cellWidth:44},
-        4:{cellWidth:50}, 5:{cellWidth:46}, 6:{cellWidth:50}, 7:{cellWidth:130},
-        8:{cellWidth:'auto', fontStyle:'bold'}
+        0:{cellWidth:78}, 1:{cellWidth:55}, 2:{cellWidth:38}, 3:{cellWidth:38},
+        4:{cellWidth:42}, 5:{cellWidth:40}, 6:{cellWidth:42}, 7:{cellWidth:75},
+        8:{cellWidth:72, fontStyle:'bold'}
       },
       didDrawCell: (data)=>{
         if (data.section !== 'body') return;
@@ -1775,13 +1775,18 @@
         doc.setLineWidth(1.1);
         doc.setLineDashPattern([3,2], 0);
         doc.setDrawColor(90,90,90);
-        doc.line(data.settings.margin.left, y, pageWidth - data.settings.margin.right, y);
+        doc.line(data.settings.margin.left, y, data.settings.margin.left + 480, y);
         doc.setLineDashPattern([], 0);
       }
     });
-    let y = doc.lastAutoTable.finalY + 12;
+    const mainTableFinalY = doc.lastAutoTable.finalY;
+    const footerStartY = mainTableFinalY + 12;
+    const rightX = marginX + 480 + 22;
+    const rightWidth = pageWidth - marginX - rightX;
+    const tinyStyle = { font:'helvetica', fontSize:7, cellPadding:{top:1,right:3,bottom:1,left:0}, textColor:[30,30,30] };
+    const tinyHead = { fontStyle:'bold', textColor:[20,20,20], cellPadding:{top:1,right:3,bottom:1.5,left:0} };
 
-    // ---- weekly amounts: one row per Mon–Sun week, split by day type (borderless) ----
+    // ---- LEFT column below main table: weekly amounts (borderless) ----
     const weekBuckets = {};
     rows.forEach((r,i)=>{
       const wk = weekKeys[i];
@@ -1799,13 +1804,13 @@
       ];
     });
     doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(90,90,90);
-    doc.text('Weekly amounts (' + pdfCurrencyLabel() + ')', marginX, y - 2);
+    doc.text('Weekly amounts (' + pdfCurrencyLabel() + ')', marginX, footerStartY - 2);
     doc.autoTable({
       head: [['Week','Weekday','Weekend','Holiday','Week Total']],
       body: weekRows,
-      startY: y + 4,
+      startY: footerStartY + 4,
       theme: 'plain',
-      tableWidth: fullWidth * 0.55,
+      tableWidth: 480,
       margin: { left: marginX },
       styles: plainStyle,
       headStyles: plainHead,
@@ -1813,7 +1818,30 @@
     });
     const weeklyFinalY = doc.lastAutoTable.finalY;
 
-    // ---- day-type summary (left) + leave-type summary (right), side by side, borderless ----
+    // ---- Bare Total line, under the weekly table (left column) ----
+    const totalY = weeklyFinalY + 16;
+    doc.setDrawColor(90,90,90); doc.setLineWidth(0.6);
+    doc.line(marginX, totalY - 9, marginX + 480, totalY - 9);
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.6); doc.setTextColor(20,20,20);
+    doc.text('Total', marginX, totalY);
+    doc.text('Days ' + rows.length, marginX + 55, totalY);
+    doc.text('Work ' + totals.regHours.toFixed(2), marginX + 115, totalY);
+    doc.text('OT ' + totals.otHours.toFixed(2), marginX + 185, totalY);
+    doc.text('Short ' + totals.shortHours.toFixed(2), marginX + 250, totalY);
+    doc.text('Amount ' + pdfCurrencyLabel() + ' ' + totals.pay.toFixed(2), marginX + 320, totalY);
+
+    // ---- Signature, under the Total line (left column) ----
+    const sigY = totalY + 26;
+    doc.setDrawColor(120,120,120); doc.setLineWidth(0.6);
+    doc.line(marginX, sigY, marginX + 170, sigY);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(90,90,90);
+    doc.text('Employee / Date', marginX, sigY + 10);
+    if (profile.name){
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(20,20,20);
+      doc.text(profile.name, marginX, sigY - 5);
+    }
+
+    // ---- RIGHT column, alongside the weekly table: day-type summary, then leave-type summary ----
     const byType = { weekday: { days:0, work:0, ot:0, amount:0 }, weekend: { days:0, work:0, ot:0, amount:0 }, holiday: { days:0, work:0, ot:0, amount:0 } };
     rows.forEach(r=>{
       const t = byType[r[2]];
@@ -1822,63 +1850,38 @@
     const typeSummaryRows = ['weekday','weekend','holiday'].map(t => [
       pdfDayTypeLabel(t), byType[t].days, byType[t].work.toFixed(2), byType[t].ot.toFixed(2), pdfCurrencyLabel()+' '+byType[t].amount.toFixed(2)
     ]);
-    const summaryY = weeklyFinalY + 16;
-    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(90,90,90);
-    doc.text('Day Type', marginX, summaryY - 2);
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(90,90,90);
+    doc.text('Day Type', rightX, footerStartY - 2);
     doc.autoTable({
       head: [['Day Type','Days','Work','OT','Amount']],
       body: typeSummaryRows,
-      startY: summaryY + 4,
+      startY: footerStartY + 4,
       theme: 'plain',
-      tableWidth: fullWidth * 0.42,
-      margin: { left: marginX },
-      styles: plainStyle,
-      headStyles: plainHead,
+      tableWidth: rightWidth,
+      margin: { left: rightX },
+      styles: tinyStyle,
+      headStyles: tinyHead,
     });
-    const typeSummaryFinalY = doc.lastAutoTable.finalY;
+    let rY = doc.lastAutoTable.finalY + 10;
 
-    const leaveX = marginX + fullWidth * 0.5;
     const leaveCounts = {};
     LEAVE_TYPES.forEach(t => { leaveCounts[t] = 0; });
     rows.forEach(r => { if (r[9] && leaveCounts.hasOwnProperty(r[9])) leaveCounts[r[9]]++; });
     const leaveRows = LEAVE_TYPES.map(t => [t, leaveCounts[t]]);
-    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(90,90,90);
-    doc.text('Leave Type', leaveX, summaryY - 2);
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(90,90,90);
+    doc.text('Leave Type', rightX, rY - 2);
     doc.autoTable({
       head: [['Leave Type','Days']],
       body: leaveRows,
-      startY: summaryY + 4,
+      startY: rY + 4,
       theme: 'plain',
-      tableWidth: fullWidth * 0.42,
-      margin: { left: leaveX },
-      styles: plainStyle,
-      headStyles: plainHead,
+      tableWidth: rightWidth,
+      margin: { left: rightX },
+      styles: tinyStyle,
+      headStyles: tinyHead,
     });
-    const leaveSummaryFinalY = doc.lastAutoTable.finalY;
 
-    // ---- bare Total line (no grid, matches a standard timecard footer row) ----
-    const totalY = Math.max(typeSummaryFinalY, leaveSummaryFinalY) + 14;
-    doc.setDrawColor(90,90,90); doc.setLineWidth(0.6);
-    doc.line(marginX, totalY - 9, pageWidth - marginX, totalY - 9);
-    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(20,20,20);
-    doc.text('Total', marginX, totalY);
-    doc.text('Days ' + rows.length, marginX + 60, totalY);
-    doc.text('Work ' + totals.regHours.toFixed(2), marginX + 130, totalY);
-    doc.text('Overtime ' + totals.otHours.toFixed(2), marginX + 220, totalY);
-    doc.text('Short ' + totals.shortHours.toFixed(2), marginX + 320, totalY);
-    doc.text('Amount ' + pdfCurrencyLabel() + ' ' + totals.pay.toFixed(2), marginX + 400, totalY);
-
-    // ---- signature (right) + print footer (bottom of page) ----
-    const sigY = totalY + 30;
-    doc.setDrawColor(120,120,120); doc.setLineWidth(0.6);
-    doc.line(pageWidth - marginX - 190, sigY, pageWidth - marginX, sigY);
-    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(90,90,90);
-    doc.text('Employee / Date', pageWidth - marginX - 190, sigY + 11);
-    if (profile.name){
-      doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(20,20,20);
-      doc.text(profile.name, pageWidth - marginX - 190, sigY - 5);
-    }
-
+    // ---- print footer (bottom of page) ----
     const footerY = pageHeight - 18;
     doc.setDrawColor(150,150,150); doc.setLineWidth(0.5);
     doc.line(marginX, footerY - 10, pageWidth - marginX, footerY - 10);
