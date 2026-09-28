@@ -1740,68 +1740,68 @@
     const { rows, weekKeys, totals } = buildExportData(range.from, range.to);
     if (!rows.length){ showToast('No entries in that date range'); return; }
 
-    // Colorful "product" styled report: navy header row + striped table with
-    // pill-badge day types, a highlighted period badge, and three icon-headed
-    // cards (Day Type / Leave Type / Weekly Amounts) below — approximating a
-    // modern branded timecard rather than a plain black-and-white grid.
+    // A4 landscape, plain black-and-white "Electronic Time Card":
+    // header block, full-width daily table with Totals row, then Day Type,
+    // Leave Type and Weekly amounts side by side, then the signature line.
+    // Row height adapts to the number of days so a normal period fits one page.
     const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
-    const marginX = 20;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 22;
+    const marginTop = 20;
+    const marginBottom = 18;
     const fullWidth = pageWidth - marginX*2;
+    const cur = pdfCurrencyLabel();
 
-    // Pure black-and-white: black text/borders on white, no grey or colored
-    // tint fills anywhere (no striping, no shaded badges, no shaded headers) —
-    // only the main table's header row and the Holiday pill stay solid black
-    // for contrast, everything else is an outline.
-    const BLACK = [15,15,15];
-    const GRAY_TXT = [90,90,90];
+    const INK = [20,20,20];
+    const MUTED = [110,110,110];
+    const GRID = [150,150,150];
+    const FILL = [232,232,232];
 
-    function dotColorFor(){ return BLACK; }
+    // ---- header block (matches the reference card) ----
+    const periodFrom = range.fromVal || rows[0][0];
+    const periodTo = range.toVal || rows[rows.length-1][0];
+    doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(INK[0],INK[1],INK[2]);
+    doc.text('Electronic Time Card', marginX, marginTop + 8);
+    doc.setFontSize(9.5);
+    doc.text('Name: ' + (profile.name || '—'), marginX, marginTop + 21);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+    doc.text('Generated ' + new Date().toLocaleString(), marginX, marginTop + 31);
 
-    // ---- letterhead ----
-    pdfIconClock(doc, marginX + 13, 22, 12, BLACK);
-    doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(BLACK[0],BLACK[1],BLACK[2]);
-    doc.text('PUNCH', marginX + 32, 20);
-    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(GRAY_TXT[0],GRAY_TXT[1],GRAY_TXT[2]);
-    doc.text('Time Tracking Made Simple', marginX + 32, 30);
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(INK[0],INK[1],INK[2]);
+    doc.text('PUNCH', pageWidth - marginX, marginTop + 8, { align:'right' });
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+    doc.text('Period: ' + periodFrom + ' to ' + periodTo, pageWidth - marginX, marginTop + 21, { align:'right' });
 
-    const titleX = marginX + 165;
-    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(BLACK[0],BLACK[1],BLACK[2]);
-    doc.text('Electronic Time Card', titleX, 17);
-    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(BLACK[0],BLACK[1],BLACK[2]);
-    doc.text('Name: ' + (profile.name || '—'), titleX, 30);
-    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(GRAY_TXT[0],GRAY_TXT[1],GRAY_TXT[2]);
-    doc.text('Generated: ' + new Date().toLocaleString(), titleX, 40);
+    const tableStartY = marginTop + 38;
 
-    // period badge — outlined box, no fill
-    const badgeW = 175, badgeH = 38, badgeX = pageWidth - marginX - 130 - badgeW, badgeY = 6;
-    doc.setDrawColor(BLACK[0],BLACK[1],BLACK[2]); doc.setLineWidth(0.8);
-    doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 5, 5, 'S');
-    pdfIconCalendar(doc, badgeX+14, badgeY+15, 12, 14, BLACK);
-    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(GRAY_TXT[0],GRAY_TXT[1],GRAY_TXT[2]);
-    doc.text('Period', badgeX+35, badgeY+13);
-    const rangeNote = (range.fromVal || range.toVal)
-      ? (range.fromVal || 'start') + ' to ' + (range.toVal || 'now')
-      : 'Full history';
-    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(BLACK[0],BLACK[1],BLACK[2]);
-    doc.text(rangeNote, badgeX+35, badgeY+24);
-    doc.setFont('helvetica','normal'); doc.setFontSize(6.2); doc.setTextColor(GRAY_TXT[0],GRAY_TXT[1],GRAY_TXT[2]);
-    doc.text('(' + rows.length + ' days)', badgeX+35, badgeY+33);
+    // ---- weekly buckets (needed up front to size the page) ----
+    const weekBuckets = {};
+    rows.forEach((r,i)=>{
+      const wk = weekKeys[i];
+      if (!weekBuckets[wk]) weekBuckets[wk] = { weekday:0, weekend:0, holiday:0, start: new Date(wk+'T00:00:00') };
+      weekBuckets[wk][r[2]] += r[11];
+    });
+    const sortedWeekKeys = Object.keys(weekBuckets).sort();
 
-    // tagline (top-right)
-    doc.setFont('times','italic'); doc.setFontSize(7.5); doc.setTextColor(BLACK[0],BLACK[1],BLACK[2]);
-    doc.text('Work', pageWidth - marginX, 12, { align:'right' });
-    doc.text('Track', pageWidth - marginX, 21, { align:'right' });
-    doc.text('Achieve', pageWidth - marginX, 30, { align:'right' });
+    // ---- adaptive sizing so everything fits one landscape A4 ----
+    const smallRowH = 10.8;
+    const bottomRows = Math.max(1 + LEAVE_TYPES.length, 2 + sortedWeekKeys.length, 5);
+    const bottomH = bottomRows * smallRowH;
+    const reservedBelow = 10 + bottomH + 34;                 // gap + summary row + signature
+    const availableMain = pageHeight - marginBottom - tableStartY - reservedBelow;
+    const rowH = Math.min(13.5, availableMain / (rows.length + 2));
+    const bodyFont = Math.max(5.6, Math.min(7.8, rowH - 4.2));
+    const vPad = Math.max(0.4, (rowH - bodyFont*1.15) / 2);
 
-    const tableStartY = 52;
-
-    // ---- main table: #, Date, Day Type, In, Out, Work, OT, Short, Leave, Amount ----
-    const header = ['#','Date','Day Type','In','Out','Work (h)','OT (h)','Short (h)','Leave','Amount'];
-    const body = rows.map((r,i) => [
-      i+1, pdfDateCell(r[0]), pdfDayTypeLabel(r[2]), r[3] || '—', r[4] || '—',
-      r[5].toFixed(2), r[6].toFixed(2), (r[7] > 0 ? r[7].toFixed(2) : '—'),
-      r[9] || '—', pdfCurrencyLabel()+' '+r[11].toFixed(2)
+    // ---- main table ----
+    const cw = [108, 84, 60, 60, 70, 70, 70, 150];
+    const amountW = fullWidth - cw.reduce((a,b)=>a+b, 0);
+    const header = ['Date','Day Type','In','Out','Work (h)','OT (h)','Short (h)','Leave','Amount'];
+    const body = rows.map(r => [
+      pdfDateCell(r[0]), pdfDayTypeLabel(r[2]), r[3] || '–', r[4] || '–',
+      r[5].toFixed(2), r[6].toFixed(2), (r[7] > 0 ? r[7].toFixed(2) : '–'),
+      r[9] || '–', cur + ' ' + r[11].toFixed(2)
     ]);
     const weekBreakAfter = new Set();
     rows.forEach((row, i)=>{
@@ -1811,161 +1811,109 @@
     doc.autoTable({
       head: [header],
       body,
+      foot: [['Totals','','','', totals.regHours.toFixed(2), totals.otHours.toFixed(2), totals.shortHours.toFixed(2), '–', cur + ' ' + totals.pay.toFixed(2)]],
       startY: tableStartY,
       theme: 'grid',
       tableWidth: fullWidth,
-      margin: { left: marginX, right: marginX },
-      styles: { font:'helvetica', fontSize:7, cellPadding:{top:1.5,right:4,bottom:1.5,left:4}, textColor:BLACK, lineColor:[190,190,190], lineWidth:0.5 },
-      headStyles: { fillColor:BLACK, textColor:[255,255,255], fontStyle:'bold', lineColor:BLACK },
+      margin: { left: marginX, right: marginX, top: marginTop, bottom: 12 },
+      styles: { font:'helvetica', fontSize: bodyFont, cellPadding:{top:vPad,right:4,bottom:vPad,left:4}, textColor:INK, lineColor:GRID, lineWidth:0.4 },
+      headStyles: { fillColor:FILL, textColor:INK, fontStyle:'bold' },
+      footStyles: { fillColor:FILL, textColor:INK, fontStyle:'bold' },
       columnStyles: {
-        0:{cellWidth:20, halign:'center'}, 1:{cellWidth:74}, 2:{cellWidth:56},
-        3:{cellWidth:36}, 4:{cellWidth:36}, 5:{cellWidth:40}, 6:{cellWidth:38},
-        7:{cellWidth:42}, 8:{cellWidth:'auto'}, 9:{cellWidth:66, fontStyle:'bold'}
-      },
-      foot: [['','','','','', totals.regHours.toFixed(2), totals.otHours.toFixed(2), totals.shortHours.toFixed(2), '', pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
-      footStyles: { fillColor:[255,255,255], textColor:BLACK, fontStyle:'bold', lineColor:BLACK, lineWidth:0.8 },
-      didParseCell: (data)=>{
-        if (data.section === 'body' && data.column.index === 2){
-          data.cell.text = ['']; // hide default text; drawn manually as a pill below
-        }
-        if (data.section === 'foot' && data.column.index === 0){ data.cell.text = ['Totals']; data.cell.styles.halign='left'; }
+        0:{cellWidth:cw[0]}, 1:{cellWidth:cw[1]}, 2:{cellWidth:cw[2]}, 3:{cellWidth:cw[3]},
+        4:{cellWidth:cw[4]}, 5:{cellWidth:cw[5]}, 6:{cellWidth:cw[6]}, 7:{cellWidth:cw[7]},
+        8:{cellWidth:amountW, fontStyle:'bold'}
       },
       didDrawCell: (data)=>{
-        if (data.section === 'body' && data.column.index === 2){
-          const label = pdfDayTypeLabel(rows[data.row.index][2]);
-          const isHoliday = label === 'Holiday';
-          const pw = Math.min(data.cell.width - 8, doc.getTextWidth(label) + 16);
-          const px = data.cell.x + 4, py = data.cell.y + (data.cell.height-12)/2;
-          if (isHoliday){ doc.setFillColor(BLACK[0],BLACK[1],BLACK[2]); doc.roundedRect(px, py, pw, 12, 6, 6, 'F'); }
-          else { doc.setDrawColor(BLACK[0],BLACK[1],BLACK[2]); doc.setLineWidth(0.7); doc.roundedRect(px, py, pw, 12, 6, 6, 'S'); }
-          doc.setFont('helvetica','bold'); doc.setFontSize(6.6);
-          doc.setTextColor(isHoliday ? 255:BLACK[0], isHoliday ? 255:BLACK[1], isHoliday ? 255:BLACK[2]);
-          doc.text(label, px + pw/2, py + 8.5, { align:'center' });
-        }
         if (data.section !== 'body') return;
         if (!weekBreakAfter.has(data.row.index)) return;
         if (data.column.index !== data.table.columns.length - 1) return;
         const yy = data.cell.y + data.cell.height;
-        doc.setLineWidth(1.1); doc.setLineDashPattern([3,2], 0); doc.setDrawColor(80,80,80);
-        doc.line(data.settings.margin.left, yy, pageWidth - data.settings.margin.right, yy);
+        doc.setLineWidth(1); doc.setLineDashPattern([3,2], 0); doc.setDrawColor(70,70,70);
+        doc.line(marginX, yy, marginX + fullWidth, yy);
         doc.setLineDashPattern([], 0);
       }
     });
-    const mainFinalY = doc.lastAutoTable.finalY + 12;
+    const sectionsY = doc.lastAutoTable.finalY + 10;
 
-    // ---- three cards: Day Type Summary | Leave Type | Weekly Amounts ----
-    const gap = 12;
-    const cardW1 = 175, cardW2 = 170, cardW3 = fullWidth - cardW1 - cardW2 - gap*2;
-    const card1X = marginX, card2X = card1X + cardW1 + gap, card3X = card2X + cardW2 + gap;
-    const cardPad = 8;
+    // ---- shared small-table look ----
+    const smallStyles = { font:'helvetica', fontSize:6.8, cellPadding:{top:1.5,right:3,bottom:1.5,left:3}, textColor:INK, lineColor:GRID, lineWidth:0.4 };
+    const smallHead = { fillColor:FILL, textColor:INK, fontStyle:'bold' };
 
-    function cardHeader(x, y, title, iconFn){
-      doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(BLACK[0],BLACK[1],BLACK[2]);
-      iconFn(x);
-      doc.text(title, x + 18, y + 3);
-    }
-    function drawCardBorder(x, w, topY, bottomY){
-      doc.setDrawColor(190,190,190); doc.setLineWidth(0.8);
-      doc.roundedRect(x - cardPad, topY - 20, w + cardPad*2, (bottomY - topY) + 26, 5, 5, 'S');
-    }
+    const gap = 14;
+    const w1 = 250, w2 = 190, w3 = fullWidth - w1 - w2 - gap*2;
+    const x1 = marginX, x2 = x1 + w1 + gap, x3 = x2 + w2 + gap;
 
-    const smallTableStyle = { font:'helvetica', fontSize:6.4, cellPadding:{top:1.5,right:2,bottom:1.5,left:2}, textColor:BLACK, lineColor:[210,210,210], lineWidth:0.4 };
-    const smallHeadStyle = { fillColor:[255,255,255], textColor:BLACK, fontStyle:'bold', lineWidth:0.4, lineColor:BLACK };
-
-    // Day Type Summary
+    // Day Type summary
     const byType = { weekday:{days:0,work:0,ot:0,amount:0}, weekend:{days:0,work:0,ot:0,amount:0}, holiday:{days:0,work:0,ot:0,amount:0} };
-    rows.forEach(r=>{ const t=byType[r[2]]; t.days+=1; t.work+=r[5]; t.ot+=r[6]; t.amount+=r[11]; });
-    const dtRows = ['weekday','weekend','holiday'].map(t => [pdfDayTypeLabel(t), byType[t].days, byType[t].work.toFixed(2), byType[t].ot.toFixed(2), pdfCurrencyLabel()+' '+byType[t].amount.toFixed(2)]);
-
-    cardHeader(card1X, mainFinalY, 'Day Type Summary', (x)=> pdfIconCalendar(doc, x+3, mainFinalY-4, 10, 11, BLACK));
+    rows.forEach(r=>{ const t = byType[r[2]]; t.days += 1; t.work += r[5]; t.ot += r[6]; t.amount += r[11]; });
+    const dtRows = ['weekday','weekend','holiday'].map(t => [
+      pdfDayTypeLabel(t), byType[t].days, byType[t].work.toFixed(2), byType[t].ot.toFixed(2), cur + ' ' + byType[t].amount.toFixed(2)
+    ]);
     doc.autoTable({
       head: [['Day Type','Days','Work (h)','OT (h)','Amount']],
       body: dtRows,
-      foot: [['Total', rows.length, totals.regHours.toFixed(2), totals.otHours.toFixed(2), pdfCurrencyLabel()+' '+totals.pay.toFixed(2)]],
-      startY: mainFinalY + 9,
+      foot: [['Total', rows.length, totals.regHours.toFixed(2), totals.otHours.toFixed(2), cur + ' ' + totals.pay.toFixed(2)]],
+      startY: sectionsY,
       theme: 'grid',
-      tableWidth: cardW1,
-      margin: { left: card1X },
-      styles: smallTableStyle,
-      headStyles: smallHeadStyle,
-      footStyles: { fillColor:[255,255,255], textColor:BLACK, fontStyle:'bold', lineWidth:0.6, lineColor:BLACK },
-      didParseCell: (data)=>{
-        if (data.section === 'body' && data.column.index === 0) data.cell.styles.cellPadding = { top:1.5, right:2, bottom:1.5, left:9 };
-      },
-      didDrawCell: (data)=>{
-        if (data.section === 'body' && data.column.index === 0){
-          pdfDot(doc, data.cell.x + 5, data.cell.y + data.cell.height/2, 2, BLACK);
-        }
-      }
+      tableWidth: w1,
+      margin: { left: x1, right: marginX, top: marginTop, bottom: 12 },
+      styles: smallStyles,
+      headStyles: smallHead,
+      footStyles: smallHead,
     });
-    const card1FinalY = doc.lastAutoTable.finalY;
+    const end1 = doc.lastAutoTable.finalY;
 
     // Leave Type
-    const leaveCounts = {}; LEAVE_TYPES.forEach(t=>{ leaveCounts[t]=0; });
-    rows.forEach(r=>{ if (r[9] && leaveCounts.hasOwnProperty(r[9])) leaveCounts[r[9]]++; });
-    const leaveRows = LEAVE_TYPES.map(t => [t, leaveCounts[t]]);
-
-    cardHeader(card2X, mainFinalY, 'Leave Type', (x)=> pdfIconCalendar(doc, x+3, mainFinalY-4, 10, 11, BLACK));
+    const leaveCounts = {};
+    LEAVE_TYPES.forEach(t => { leaveCounts[t] = 0; });
+    rows.forEach(r => { if (r[9] && leaveCounts.hasOwnProperty(r[9])) leaveCounts[r[9]]++; });
     doc.autoTable({
       head: [['Leave Type','Days']],
-      body: leaveRows,
-      startY: mainFinalY + 9,
+      body: LEAVE_TYPES.map(t => [t, leaveCounts[t]]),
+      startY: sectionsY,
       theme: 'grid',
-      tableWidth: cardW2,
-      margin: { left: card2X },
-      styles: smallTableStyle,
-      headStyles: smallHeadStyle,
+      tableWidth: w2,
+      margin: { left: x2, right: marginX, top: marginTop, bottom: 12 },
+      styles: smallStyles,
+      headStyles: smallHead,
     });
-    const card2FinalY = doc.lastAutoTable.finalY;
+    const end2 = doc.lastAutoTable.finalY;
 
-    // Weekly Amounts (keeps the weekly segmentation feature)
-    const weekBuckets = {};
-    rows.forEach((r,i)=>{
-      const wk = weekKeys[i];
-      if (!weekBuckets[wk]) weekBuckets[wk] = { weekday:0, weekend:0, holiday:0, start: new Date(wk+'T00:00:00') };
-      weekBuckets[wk][r[2]] += r[11];
-    });
-    const sortedWeekKeys = Object.keys(weekBuckets).sort();
+    // Weekly amounts (one row per Monday–Sunday week)
     const weekRows = sortedWeekKeys.map((wk, idx)=>{
       const b = weekBuckets[wk];
       const end = new Date(b.start); end.setDate(b.start.getDate()+6);
       const total = b.weekday + b.weekend + b.holiday;
       return [
         'Week ' + (idx+1) + ' (' + pdfShortDate(b.start) + ' – ' + pdfShortDate(end) + ')',
-        b.weekday.toFixed(2), b.weekend.toFixed(2), b.holiday.toFixed(2), total.toFixed(2)
+        cur + ' ' + b.weekday.toFixed(2), cur + ' ' + b.weekend.toFixed(2), cur + ' ' + b.holiday.toFixed(2), cur + ' ' + total.toFixed(2)
       ];
     });
-
-    cardHeader(card3X, mainFinalY, 'Weekly Amounts', (x)=> pdfIconBars(doc, x+2, mainFinalY-9, 11, 9, BLACK));
     doc.autoTable({
-      head: [['Week','Weekday','Weekend','Holiday','Week Total']],
+      head: [
+        [{ content:'Weekly amounts', colSpan:5, styles:{ halign:'left' } }],
+        ['Week','Weekday','Weekend','Holiday','Week Total']
+      ],
       body: weekRows,
-      startY: mainFinalY + 9,
+      startY: sectionsY,
       theme: 'grid',
-      tableWidth: cardW3,
-      margin: { left: card3X },
-      styles: smallTableStyle,
-      headStyles: smallHeadStyle,
-      columnStyles: { 4:{ fontStyle:'bold' } }
+      tableWidth: w3,
+      margin: { left: x3, right: marginX, top: marginTop, bottom: 12 },
+      styles: smallStyles,
+      headStyles: smallHead,
+      columnStyles: { 4:{ fontStyle:'bold' } },
     });
-    const card3FinalY = doc.lastAutoTable.finalY;
+    const end3 = doc.lastAutoTable.finalY;
 
-    drawCardBorder(card1X, cardW1, mainFinalY, card1FinalY);
-    drawCardBorder(card2X, cardW2, mainFinalY, card2FinalY);
-    drawCardBorder(card3X, cardW3, mainFinalY, card3FinalY);
-
-    // ---- signature + tagline ----
-    const sigY = Math.max(card1FinalY, card2FinalY, card3FinalY) + 26;
-    pdfIconPerson(doc, marginX + 7, sigY - 5, 7, BLACK);
-    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(BLACK[0],BLACK[1],BLACK[2]);
-    doc.text(profile.name || '—', marginX + 20, sigY - 9);
-    doc.setDrawColor(BLACK[0],BLACK[1],BLACK[2]); doc.setLineWidth(0.6);
-    doc.line(marginX + 20, sigY, marginX + 200, sigY);
-    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(GRAY_TXT[0],GRAY_TXT[1],GRAY_TXT[2]);
-    doc.text('Employee / Date', marginX + 20, sigY + 10);
-
-    doc.setFont('times','italic'); doc.setFontSize(7.5); doc.setTextColor(BLACK[0],BLACK[1],BLACK[2]);
-    doc.text('Better Attendance  ·  Greater Results', pageWidth - marginX, sigY + 3, { align:'right' });
+    // ---- signature ----
+    const nameY = Math.max(end1, end2, end3) + 22;
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(INK[0],INK[1],INK[2]);
+    doc.text(profile.name || '', marginX, nameY);
+    doc.setDrawColor(90,90,90); doc.setLineWidth(0.6);
+    doc.line(marginX, nameY + 4, marginX + 190, nameY + 4);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+    doc.text('Employee / Date', marginX, nameY + 14);
 
     const blob = doc.output('blob');
     await offerDownload(exportFilename('punch-log', range) + '.pdf', blob);
