@@ -167,6 +167,12 @@
   }
 
   .day-group{ margin-bottom:16px; }
+  .history-period-header{
+    font-family:'IBM Plex Mono'; font-size:11px; font-weight:600; color:var(--accent);
+    text-transform:uppercase; letter-spacing:.05em; margin:18px 0 10px; padding-top:14px;
+    border-top:1px solid var(--border);
+  }
+  .history-period-header:first-child{ margin-top:0; padding-top:0; border-top:none; }
   .day-group:last-child{ margin-bottom:0; }
   .day-head{ display:flex; align-items:flex-start; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid var(--border); gap:8px; }
   .day-head b{ color:var(--text); font-weight:600; }
@@ -1207,13 +1213,23 @@
     return wrap;
   }
 
+  function periodBoundsFor(date){
+    const startDay = Math.min(Math.max(parseInt(settings.periodStartDay,10) || 22, 1), 28);
+    const y = date.getFullYear(), m = date.getMonth();
+    let start;
+    if (date.getDate() >= startDay){ start = new Date(y, m, startDay, 0,0,0,0); }
+    else { start = new Date(y, m-1, startDay, 0,0,0,0); }
+    const end = new Date(start.getFullYear(), start.getMonth()+1, start.getDate()-1, 23,59,59,999);
+    return { start, end };
+  }
+
   function renderLedger(now){
     const threshold = settings.dailyThreshold || 8;
     const el = document.getElementById('ledger');
     const historyEl = document.getElementById('historyLedger');
     el.innerHTML = '';
     historyEl.innerHTML = '';
-    const groups = groupByDay(now).slice(0, 60);
+    const groups = groupByDay(now).slice(0, 120);
 
     if (!groups.length){
       const e = document.createElement('div'); e.className='empty'; e.textContent = 'No entries yet — clock in to start your log.';
@@ -1229,10 +1245,31 @@
       const e = document.createElement('div'); e.className='empty'; e.textContent = 'Nothing earlier yet.';
       historyEl.appendChild(e);
       document.getElementById('historySummary').textContent = 'Empty';
-    } else {
-      rest.forEach(g => historyEl.appendChild(buildDayGroupEl(g, now, threshold)));
-      document.getElementById('historySummary').textContent = rest.length + ' day' + (rest.length===1?'':'s');
+      return;
     }
+
+    // Group the rest by recurring pay period (22nd–21st by default), newest period first,
+    // rather than a single flat list of every day.
+    const periodMap = new Map();
+    rest.forEach(g=>{
+      const { start, end } = periodBoundsFor(g.date);
+      const key = dateKey(start);
+      if (!periodMap.has(key)) periodMap.set(key, { start, end, groups: [] });
+      periodMap.get(key).groups.push(g);
+    });
+    const periodKeys = Array.from(periodMap.keys()).sort().reverse();
+
+    periodKeys.forEach(key=>{
+      const p = periodMap.get(key);
+      const header = document.createElement('div'); header.className = 'history-period-header';
+      const sameYear = p.start.getFullYear() === p.end.getFullYear();
+      header.textContent = p.start.toLocaleDateString(undefined,{month:'short', day:'numeric'}) + ' – ' +
+        p.end.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+      historyEl.appendChild(header);
+      p.groups.forEach(g => historyEl.appendChild(buildDayGroupEl(g, now, threshold)));
+    });
+
+    document.getElementById('historySummary').textContent = rest.length + ' day' + (rest.length===1?'':'s');
   }
 
   function renderSessionRow(s, now, threshold){
