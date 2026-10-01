@@ -168,11 +168,16 @@
 
   .day-group{ margin-bottom:16px; }
   .history-period-header{
+    width:100%; display:flex; align-items:center; justify-content:space-between;
+    background:none; border:none; cursor:pointer; text-align:left;
     font-family:'IBM Plex Mono'; font-size:11px; font-weight:600; color:var(--accent);
-    text-transform:uppercase; letter-spacing:.05em; margin:18px 0 10px; padding-top:14px;
+    text-transform:uppercase; letter-spacing:.05em; margin:18px 0 10px; padding:14px 0 10px;
     border-top:1px solid var(--border);
   }
   .history-period-header:first-child{ margin-top:0; padding-top:0; border-top:none; }
+  .history-period-header:active{ opacity:.7; }
+  .history-period-right{ display:flex; align-items:center; gap:8px; color:var(--text-dim); text-transform:none; letter-spacing:0; font-weight:400; }
+  .page-overlay.page-overlay-nested{ z-index:220; }
   .day-group:last-child{ margin-bottom:0; }
   .day-head{ display:flex; align-items:flex-start; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid var(--border); gap:8px; }
   .day-head b{ color:var(--text); font-weight:600; }
@@ -406,6 +411,17 @@
   </div>
   <div class="page-body">
     <div id="historyLedger"></div>
+  </div>
+</div>
+
+<div class="page-overlay page-overlay-nested" id="historyPeriodPage">
+  <div class="page-header">
+    <button class="page-back" id="historyPeriodBackBtn" type="button">‹ Back</button>
+    <div class="page-title" id="historyPeriodTitle">Period</div>
+    <div class="page-header-spacer"></div>
+  </div>
+  <div class="page-body">
+    <div id="historyPeriodBody"></div>
   </div>
 </div>
 
@@ -1261,12 +1277,18 @@
 
     periodKeys.forEach(key=>{
       const p = periodMap.get(key);
-      const header = document.createElement('div'); header.className = 'history-period-header';
       const sameYear = p.start.getFullYear() === p.end.getFullYear();
-      header.textContent = p.start.toLocaleDateString(undefined,{month:'short', day:'numeric'}) + ' – ' +
+      const label = p.start.toLocaleDateString(undefined,{month:'short', day:'numeric'}) + ' – ' +
         p.end.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+
+      const header = document.createElement('button');
+      header.type = 'button';
+      header.className = 'history-period-header';
+      const dayCount = p.groups.length;
+      header.innerHTML = '<span>' + label + '</span>' +
+        '<span class="history-period-right"><span class="mono">' + dayCount + ' day' + (dayCount===1?'':'s') + '</span><span class="chev-right">›</span></span>';
+      header.onclick = () => openHistoryPeriod(label, p.groups, threshold, now);
       historyEl.appendChild(header);
-      p.groups.forEach(g => historyEl.appendChild(buildDayGroupEl(g, now, threshold)));
     });
 
     document.getElementById('historySummary').textContent = rest.length + ' day' + (rest.length===1?'':'s');
@@ -1565,6 +1587,15 @@
   document.getElementById('profileBackBtn').addEventListener('click', ()=> closePage('profilePage'));
   document.getElementById('openSettingsBtn').addEventListener('click', ()=> openPage('settingsPage'));
   document.getElementById('settingsBackBtn').addEventListener('click', ()=> closePage('settingsPage'));
+
+  function openHistoryPeriod(label, groups, threshold, now){
+    document.getElementById('historyPeriodTitle').textContent = label;
+    const body = document.getElementById('historyPeriodBody');
+    body.innerHTML = '';
+    groups.forEach(g => body.appendChild(buildDayGroupEl(g, now, threshold)));
+    openPage('historyPeriodPage');
+  }
+  document.getElementById('historyPeriodBackBtn').addEventListener('click', ()=> closePage('historyPeriodPage'));
 
   // ---------- export (day-level: date, type, in/out, regular/overtime/total, rate, pay) ----------
   // Row layout: [0]date [1]dayName [2]type [3]in [4]out [5]regHours [6]otHours
