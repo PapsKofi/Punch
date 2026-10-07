@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Punch">
 <meta name="theme-color" content="#0F1220">
 <title>PUNCH — Time Clock</title>
@@ -44,7 +44,7 @@
     -webkit-font-smoothing:antialiased;
     min-height:100vh;
     display:flex; justify-content:center;
-    padding: max(18px, env(safe-area-inset-top)) 14px max(24px, env(safe-area-inset-bottom));
+    padding: max(18px, calc(env(safe-area-inset-top) + 6px)) 14px max(24px, env(safe-area-inset-bottom));
   }
   .app{ width:100%; max-width:460px; }
   .mono{ font-family:'IBM Plex Mono', ui-monospace, monospace; }
